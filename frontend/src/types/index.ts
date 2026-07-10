@@ -1,0 +1,74 @@
+// TypeScript mirrors of the backend Pydantic schemas (backend/app/schemas).
+// Field names are snake_case to match the JSON payloads exactly.
+
+export type UserRole = "owner" | "veterinarian";
+
+export type AgeCategory = "baby" | "young" | "adult" | "senior" | "unknown";
+
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  role: UserRole;
+  clinic_name: string | null;
+  created_at: string;
+}
+
+export interface Animal {
+  id: string;
+  name: string;
+  species: string;
+  breed: string | null;
+  age_category: AgeCategory;
+  owner_id: string;
+  created_at: string;
+}
+
+export interface BreedCandidate {
+  breed: string;
+  confidence: number;
+}
+
+export interface AgeEstimate {
+  category: AgeCategory;
+  min_years: number;
+  max_years: number;
+  confidence: number;
+}
+
+export interface AnalysisResult {
+  model_version: string;
+  species: string;
+  species_confidence: number;
+  breed_candidates: BreedCandidate[];
+  age_estimate: AgeEstimate;
+  characteristics: string[];
+}
+
+export interface AnalysisResponse {
+  analysis_id: string;
+  animal_id: string | null;
+  image_url: string;
+  created_at: string;
+  result: AnalysisResult;
+}
+
+export interface Post {
+  id: string;
+  title: string;
+  content: string;
+  author: User;
+  comment_count: number;
+  created_at: string;
+}
+
+export interface Comment {
+  id: string;
+  content: string;
+  author: User;
+  created_at: string;
+}
+
+export interface PostDetail extends Post {
+  comments: Comment[];
+}

@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.env
+*.db
+
+# Local "S3" storage (uploaded media)
+backend/storage/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+*.local
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
