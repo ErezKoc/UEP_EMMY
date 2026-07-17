@@ -36,9 +36,39 @@ UEP_EMMY/
         ├── types/index.ts        # TS mirrors of backend schemas
         ├── api/client.ts         # Typed fetch client
         ├── lib/format.ts         # Display helpers
-        ├── components/           # ImageUpload, AnalysisCard, CommunityFeed
-        └── pages/Dashboard.tsx
+        ├── components/
+        │   ├── ui/               # Shared component library (see below)
+        │   ├── layout/           # AppLayout (navbar/footer shell), PlaceholderPage
+        │   └── ...               # ImageUpload, AnalysisCard, CommunityFeed
+        └── pages/                # One folder per feature area (see route map)
 ```
+
+## Frontend: routes, ownership, and shared components
+
+`App.tsx` registers every route inside the shared `AppLayout` shell. Each page
+lives in its owner's folder — replace the stub inside your page file; you should
+rarely need to touch `App.tsx`.
+
+| Routes                                              | Owner    | Area |
+| --------------------------------------------------- | -------- | ---- |
+| `/`, `/dashboard`, `*` (404), shell, `components/ui` | Member 1 | Design system, layout, landing |
+| `/login`, `/signup`, `/profile`, `/settings`         | Member 2 | Auth & profiles (`pages/auth/`) |
+| `/pets`, `/pets/:petId`                              | Member 3 | Pet management (`pages/pets/`) |
+| `/analyze`, `/analysis/history`                      | Member 4 | AI analysis flow (`pages/analysis/`) |
+| `/community`, `/community/new`, `/community/:postId`, `/vets` | Member 5 | Community & vets (`pages/community/`) |
+
+Shared UI lives in `src/components/ui` (import from `../components/ui`):
+`Button`, `Card`, `Badge` (has a `vet` variant for verified-vet markers),
+`Avatar`, `Input`/`Textarea`/`Select`, `Modal`, `Spinner`, `EmptyState`, and a
+`useToast()` hook (provider already mounted in `App.tsx`). Use these instead of
+hand-rolling equivalents so the app stays visually consistent. Brand colors are
+the `primary-*` Tailwind classes, defined once in `src/index.css`.
+
+Backend work each member owns alongside their pages: Member 2 — stub
+`/v1/auth` + `/v1/users`; Member 3 — `/v1/animals` CRUD (model exists);
+Member 4 — `GET /v1/analysis` history endpoint; Member 5 — vet directory
+endpoint (posts/comments endpoints already exist). Keep `frontend/src/types/index.ts`
+in sync with backend schemas — it is the shared contract.
 
 ## Running the backend
 

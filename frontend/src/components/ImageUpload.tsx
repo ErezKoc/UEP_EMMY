@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { DragEvent, ChangeEvent } from "react";
 import { ApiError, uploadForAnalysis } from "../api/client";
+import { ImageIcon } from "./ui/icons";
 import type { AnalysisResponse } from "../types";
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -93,9 +94,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
           />
         ) : (
           <>
-            <span className="text-3xl" aria-hidden>
-              🐾
-            </span>
+            <ImageIcon className="h-8 w-8 text-slate-400" />
             <p className="mt-2 text-sm font-medium text-slate-700">
               Drag &amp; drop a pet photo here
             </p>
