@@ -5,8 +5,9 @@ from app.schemas.analysis import (
     BreedCandidate,
 )
 from app.schemas.animal import AnimalCreate, AnimalRead
+from app.schemas.auth import AuthResponse, LoginRequest, SignupRequest
 from app.schemas.post import CommentCreate, CommentRead, PostCreate, PostDetail, PostRead
-from app.schemas.user import UserRead
+from app.schemas.user import PasswordChange, UserRead, UserUpdate
 
 __all__ = [
     "AgeEstimate",
@@ -14,11 +15,16 @@ __all__ = [
     "AnalysisResult",
     "AnimalCreate",
     "AnimalRead",
+    "AuthResponse",
     "BreedCandidate",
     "CommentCreate",
     "CommentRead",
+    "LoginRequest",
+    "PasswordChange",
     "PostCreate",
     "PostDetail",
     "PostRead",
+    "SignupRequest",
     "UserRead",
+    "UserUpdate",
 ]

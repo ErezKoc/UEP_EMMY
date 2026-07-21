@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useSession } from "../../auth/SessionContext";
+import Avatar from "../ui/Avatar";
 import Button from "../ui/Button";
 import { MenuIcon, PawIcon } from "../ui/icons";
 
@@ -17,8 +19,75 @@ function navLinkClasses({ isActive }: { isActive: boolean }): string {
   }`;
 }
 
+/** Signed-in avatar button with a small dropdown (desktop navbar). */
+function UserMenu() {
+  const { user, logout } = useSession();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on click outside.
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  if (!user) return null;
+
+  const handleLogout = () => {
+    setOpen(false);
+    logout();
+    navigate("/");
+  };
+
+  const itemClasses = "block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50";
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        onClick={() => setOpen((current) => !current)}
+        aria-label="Account menu"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="rounded-full ring-2 ring-transparent transition hover:ring-primary-200"
+      >
+        <Avatar name={user.display_name} src={user.avatar_url} size="sm" />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl bg-white py-1 shadow-lg ring-1 ring-slate-200"
+        >
+          <div className="border-b border-slate-100 px-4 py-2">
+            <p className="truncate text-sm font-semibold text-slate-800">{user.display_name}</p>
+            <p className="truncate text-xs text-slate-500">{user.email}</p>
+          </div>
+          <Link to="/profile" role="menuitem" className={itemClasses} onClick={() => setOpen(false)}>
+            My profile
+          </Link>
+          <Link to="/settings" role="menuitem" className={itemClasses} onClick={() => setOpen(false)}>
+            Settings
+          </Link>
+          <button role="menuitem" onClick={handleLogout} className={`${itemClasses} text-rose-600`}>
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, logout } = useSession();
+  const navigate = useNavigate();
+
+  const closeMobile = () => setMobileOpen(false);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -38,15 +107,20 @@ export default function AppLayout() {
           </nav>
 
           <div className="ml-auto hidden items-center gap-2 md:flex">
-            {/* Member 2: replace with session-aware user menu (avatar, profile, logout). */}
-            <Link to="/login">
-              <Button variant="secondary" size="sm">
-                Sign in
-              </Button>
-            </Link>
-            <Link to="/signup">
-              <Button size="sm">Get started</Button>
-            </Link>
+            {user ? (
+              <UserMenu />
+            ) : (
+              <>
+                <Link to="/login">
+                  <Button variant="secondary" size="sm">
+                    Sign in
+                  </Button>
+                </Link>
+                <Link to="/signup">
+                  <Button size="sm">Get started</Button>
+                </Link>
+              </>
+            )}
           </div>
 
           <button
@@ -65,18 +139,42 @@ export default function AppLayout() {
             className="flex flex-col gap-1 border-t border-slate-200 px-4 py-3 md:hidden"
           >
             {NAV_ITEMS.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={navLinkClasses}
-                onClick={() => setMobileOpen(false)}
-              >
+              <NavLink key={item.to} to={item.to} className={navLinkClasses} onClick={closeMobile}>
                 {item.label}
               </NavLink>
             ))}
-            <NavLink to="/login" className={navLinkClasses} onClick={() => setMobileOpen(false)}>
-              Sign in
-            </NavLink>
+
+            {user ? (
+              <>
+                <div className="my-1 border-t border-slate-100" />
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <Avatar name={user.display_name} src={user.avatar_url} size="sm" />
+                  <span className="truncate text-sm font-medium text-slate-700">
+                    {user.display_name}
+                  </span>
+                </div>
+                <NavLink to="/profile" className={navLinkClasses} onClick={closeMobile}>
+                  My profile
+                </NavLink>
+                <NavLink to="/settings" className={navLinkClasses} onClick={closeMobile}>
+                  Settings
+                </NavLink>
+                <button
+                  onClick={() => {
+                    closeMobile();
+                    logout();
+                    navigate("/");
+                  }}
+                  className="rounded-lg px-3 py-2 text-left text-sm font-medium text-rose-600 hover:bg-rose-50"
+                >
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <NavLink to="/login" className={navLinkClasses} onClick={closeMobile}>
+                Sign in
+              </NavLink>
+            )}
           </nav>
         )}
       </header>

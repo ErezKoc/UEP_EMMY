@@ -10,8 +10,33 @@ export interface User {
   email: string;
   display_name: string;
   role: UserRole;
+  bio: string | null;
+  avatar_url: string | null;
   clinic_name: string | null;
+  license_number: string | null;
   created_at: string;
+}
+
+export interface SignupPayload {
+  email: string;
+  password: string;
+  display_name: string;
+  role: UserRole;
+  clinic_name?: string;
+  license_number?: string;
+}
+
+export interface ProfileUpdatePayload {
+  display_name?: string;
+  bio?: string;
+  email?: string;
+  clinic_name?: string;
+  license_number?: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
 }
 
 export interface Animal {

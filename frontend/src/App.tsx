@@ -1,4 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import RequireAuth from "./auth/RequireAuth";
+import { SessionProvider } from "./auth/SessionContext";
 import AppLayout from "./components/layout/AppLayout";
 import { ToastProvider } from "./components/ui/toast";
 import Dashboard from "./pages/Dashboard";
@@ -31,32 +33,48 @@ import PetsPage from "./pages/pets/PetsPage";
 export default function App() {
   return (
     <ToastProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<Landing />} />
-            <Route path="/dashboard" element={<Dashboard />} />
+      <SessionProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<Landing />} />
+              <Route path="/dashboard" element={<Dashboard />} />
 
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignupPage />} />
+              <Route
+                path="/profile"
+                element={
+                  <RequireAuth>
+                    <ProfilePage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RequireAuth>
+                    <SettingsPage />
+                  </RequireAuth>
+                }
+              />
 
-            <Route path="/pets" element={<PetsPage />} />
-            <Route path="/pets/:petId" element={<PetDetailPage />} />
+              <Route path="/pets" element={<PetsPage />} />
+              <Route path="/pets/:petId" element={<PetDetailPage />} />
 
-            <Route path="/analyze" element={<AnalyzePage />} />
-            <Route path="/analysis/history" element={<AnalysisHistoryPage />} />
+              <Route path="/analyze" element={<AnalyzePage />} />
+              <Route path="/analysis/history" element={<AnalysisHistoryPage />} />
 
-            <Route path="/community" element={<CommunityPage />} />
-            <Route path="/community/new" element={<NewPostPage />} />
-            <Route path="/community/:postId" element={<PostDetailPage />} />
-            <Route path="/vets" element={<VetsPage />} />
+              <Route path="/community" element={<CommunityPage />} />
+              <Route path="/community/new" element={<NewPostPage />} />
+              <Route path="/community/:postId" element={<PostDetailPage />} />
+              <Route path="/vets" element={<VetsPage />} />
 
-            <Route path="*" element={<NotFound />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </SessionProvider>
     </ToastProvider>
   );
 }

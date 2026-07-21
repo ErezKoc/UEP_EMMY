@@ -7,7 +7,11 @@ proper registration/auth flows and Alembic data migrations.
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.security import hash_password
 from app.models import AgeCategory, Animal, Comment, Post, User, UserRole
+
+# Both demo accounts share this password (documented in the README).
+DEMO_PASSWORD = "demo1234"
 
 
 def seed_demo_data(db: Session) -> None:
@@ -15,16 +19,20 @@ def seed_demo_data(db: Session) -> None:
         return
 
     owner = User(
-        email="demo.owner@uep-emmy.local",
+        email="demo.owner@uepemmy.com",
+        password_hash=hash_password(DEMO_PASSWORD),
         display_name="Alex the Pet Owner",
         role=UserRole.OWNER,
+        bio="Proud owner of Buddy the Labrador. Learning something new about dogs every day.",
     )
     vet = User(
-        email="demo.vet@uep-emmy.local",
+        email="demo.vet@uepemmy.com",
+        password_hash=hash_password(DEMO_PASSWORD),
         display_name="Dr. Maya Fischer",
         role=UserRole.VETERINARIAN,
         clinic_name="Riverside Veterinary Clinic",
         license_number="VET-2024-0042",
+        bio="Small-animal veterinarian with 12 years of experience. Special interest in nutrition and preventive care.",
     )
     db.add_all([owner, vet])
     db.flush()

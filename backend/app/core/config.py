@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     max_upload_mb: int = 10
     cors_origins: str = "http://localhost:5173"
 
+    # Auth (MVP): signs session tokens. Override in .env for anything shared.
+    secret_key: str = "dev-only-change-me"
+    token_ttl_hours: int = 24 * 7
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

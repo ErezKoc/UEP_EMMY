@@ -34,7 +34,8 @@ UEP_EMMY/
 └── frontend/
     └── src/
         ├── types/index.ts        # TS mirrors of backend schemas
-        ├── api/client.ts         # Typed fetch client
+        ├── api/client.ts         # Typed fetch client (+ session token storage)
+        ├── auth/                 # SessionContext (useSession) + RequireAuth guard
         ├── lib/format.ts         # Display helpers
         ├── components/
         │   ├── ui/               # Shared component library (see below)
@@ -64,11 +65,25 @@ Shared UI lives in `src/components/ui` (import from `../components/ui`):
 hand-rolling equivalents so the app stays visually consistent. Brand colors are
 the `primary-*` Tailwind classes, defined once in `src/index.css`.
 
-Backend work each member owns alongside their pages: Member 2 — stub
-`/v1/auth` + `/v1/users`; Member 3 — `/v1/animals` CRUD (model exists);
+Backend work each member owns alongside their pages: Member 2 — `/v1/auth` +
+`/v1/users` (**done**); Member 3 — `/v1/animals` CRUD (model exists);
 Member 4 — `GET /v1/analysis` history endpoint; Member 5 — vet directory
 endpoint (posts/comments endpoints already exist). Keep `frontend/src/types/index.ts`
 in sync with backend schemas — it is the shared contract.
+
+### Auth & session (Member 2 — done)
+
+- `SessionProvider` / `useSession()` (`src/auth/SessionContext.tsx`) exposes
+  `user`, `login`, `signup`, `logout`; the token persists in localStorage and the
+  session is restored via `GET /v1/auth/me` on page load.
+- Wrap signed-in-only pages with `RequireAuth` (`src/auth/RequireAuth.tsx`) in
+  `App.tsx` — it redirects to `/login` and returns the user afterwards.
+- On the backend, protect routes with
+  `current_user: User = Depends(get_current_user)` from `app/api/deps.py`
+  (or `get_optional_user` where anonymous access is allowed). The frontend
+  client sends the `Authorization: Bearer` header automatically.
+- Demo accounts (seeded): `demo.owner@uepemmy.com` and `demo.vet@uepemmy.com`,
+  password `demo1234` for both.
 
 ## Running the backend
 
@@ -85,10 +100,20 @@ Tables are created and demo data (a pet owner, a veterinarian, sample posts) is
 seeded automatically on first startup. No PostgreSQL handy? Set
 `DATABASE_URL=sqlite:///./uep_emmy.db` in `.env` for a throwaway local database.
 
+> **Schema changed with auth (July 2026):** `users` gained `password_hash`,
+> `bio`, and `avatar_url`. There are no migrations yet — if you have an older
+> local database, delete it (e.g. `uep_emmy.db`) and let the app recreate it.
+
 API docs: <http://localhost:8000/docs>
 
 | Endpoint                       | Description                                        |
 | ------------------------------ | -------------------------------------------------- |
+| `POST /v1/auth/signup`         | Create an account (owner or veterinarian) → token  |
+| `POST /v1/auth/login`          | Email + password → token                           |
+| `GET /v1/auth/me`              | User for the presented Bearer token                |
+| `PATCH /v1/users/me`           | Update profile (name, bio, email, clinic, license) |
+| `POST /v1/users/me/password`   | Change password                                    |
+| `POST /v1/users/me/avatar`     | Multipart profile-photo upload                     |
 | `POST /v1/analysis/upload`     | Multipart image upload → stored + mock AI analysis |
 | `GET /v1/posts`                | Recent community posts (newest first, paginated)   |
 | `POST /v1/posts`               | Create a post                                      |
@@ -121,7 +146,14 @@ the backend first.
 
 ## MVP simplifications to revisit
 
-- No authentication yet: `POST /v1/posts` accepts an optional `author_id` and falls
-  back to the seeded demo owner. Replace with a real auth dependency.
+- Auth is deliberately minimal (`app/core/security.py`): PBKDF2 password hashes
+  and HMAC-signed tokens, standard library only. Before any real deployment,
+  swap for a vetted stack (passlib/bcrypt + JWT library, or Amazon Cognito) and
+  set a real `SECRET_KEY` in `.env`.
+- `POST /v1/posts` still accepts an optional `author_id` and falls back to the
+  seeded demo owner. Member 5: switch it to `Depends(get_current_user)` from
+  `app/api/deps.py` and drop `author_id` from the payloads.
+- Vet accounts are self-declared at signup; the license number is stored but not
+  verified. A verification flow (document upload + admin review) is planned.
 - Uploads are buffered in memory (bounded by `MAX_UPLOAD_MB`); stream to storage
   for larger files.

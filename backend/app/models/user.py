@@ -23,7 +23,12 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # PBKDF2 hash (see core/security.py). Nullable so pre-auth rows keep working;
+    # such accounts simply cannot log in.
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(120))
+    bio: Mapped[str | None] = mapped_column(String(1000))
+    avatar_url: Mapped[str | None] = mapped_column(String(1024))
     # native_enum=False stores the value as a VARCHAR + CHECK constraint, which
     # keeps the schema portable and avoids ALTER TYPE migrations on Postgres.
     role: Mapped[UserRole] = mapped_column(
