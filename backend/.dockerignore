@@ -1,0 +1,6 @@
+__pycache__
+.venv
+.env
+uep_emmy.db
+uploads
+*.pyc
