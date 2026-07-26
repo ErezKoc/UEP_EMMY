@@ -44,9 +44,24 @@ export interface Animal {
   name: string;
   species: string;
   breed: string | null;
+  birth_date: string | null;
+  photo_url: string | null;
+  photo_position_x: number;
+  photo_position_y: number;
+  photo_zoom: number;
   age_category: AgeCategory;
   owner_id: string;
   created_at: string;
+}
+
+export interface AnimalPayload {
+  name: string;
+  species: string;
+  breed?: string | null;
+  birth_date?: string | null;
+  photo_position_x?: number;
+  photo_position_y?: number;
+  photo_zoom?: number;
 }
 
 export interface BreedCandidate {

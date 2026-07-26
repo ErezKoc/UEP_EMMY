@@ -1,5 +1,7 @@
 import type {
   AnalysisResponse,
+  Animal,
+  AnimalPayload,
   AuthResponse,
   Post,
   PostDetail,
@@ -108,6 +110,41 @@ export async function uploadAvatar(file: File): Promise<User> {
     body: formData,
   });
   return parseResponse<User>(response);
+}
+
+// --------------------------------------------------------------------- pets
+
+export async function getAnimals(): Promise<Animal[]> {
+  const response = await fetch(`${API_BASE}/animals`, { headers: authHeaders() });
+  return parseResponse<Animal[]>(response);
+}
+
+export async function getAnimal(animalId: string): Promise<Animal> {
+  const response = await fetch(`${API_BASE}/animals/${animalId}`, { headers: authHeaders() });
+  return parseResponse<Animal>(response);
+}
+
+export function createAnimal(payload: AnimalPayload): Promise<Animal> {
+  return requestJson<Animal>("/animals", "POST", payload);
+}
+
+export function updateAnimal(animalId: string, payload: Partial<AnimalPayload>): Promise<Animal> {
+  return requestJson<Animal>(`/animals/${animalId}`, "PATCH", payload);
+}
+
+export function deleteAnimal(animalId: string): Promise<void> {
+  return requestJson<void>(`/animals/${animalId}`, "DELETE");
+}
+
+export async function uploadAnimalPhoto(animalId: string, file: File): Promise<Animal> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/animals/${animalId}/photo`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+  return parseResponse<Animal>(response);
 }
 
 // -------------------------------------------------------------------- posts

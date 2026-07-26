@@ -17,7 +17,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  if (user) return <Navigate to="/dashboard" replace />;
+  // Also covers the just-logged-in re-render: the session user appears before
+  // handleSubmit's navigate runs, and this redirect must honor `from` too.
+  if (user) return <Navigate to={from} replace />;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

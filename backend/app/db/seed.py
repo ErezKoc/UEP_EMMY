@@ -4,6 +4,8 @@ Only runs when the users table is empty; a real deployment replaces this with
 proper registration/auth flows and Alembic data migrations.
 """
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -41,6 +43,7 @@ def seed_demo_data(db: Session) -> None:
         name="Buddy",
         species="dog",
         breed="Labrador Retriever",
+        birth_date=date(2021, 3, 14),
         age_category=AgeCategory.ADULT,
         owner_id=owner.id,
     )

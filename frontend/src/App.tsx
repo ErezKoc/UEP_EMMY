@@ -59,8 +59,22 @@ export default function App() {
                 }
               />
 
-              <Route path="/pets" element={<PetsPage />} />
-              <Route path="/pets/:petId" element={<PetDetailPage />} />
+              <Route
+                path="/pets"
+                element={
+                  <RequireAuth>
+                    <PetsPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/pets/:petId"
+                element={
+                  <RequireAuth>
+                    <PetDetailPage />
+                  </RequireAuth>
+                }
+              />
 
               <Route path="/analyze" element={<AnalyzePage />} />
               <Route path="/analysis/history" element={<AnalysisHistoryPage />} />

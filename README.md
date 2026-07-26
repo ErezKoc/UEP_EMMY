@@ -66,7 +66,7 @@ hand-rolling equivalents so the app stays visually consistent. Brand colors are
 the `primary-*` Tailwind classes, defined once in `src/index.css`.
 
 Backend work each member owns alongside their pages: Member 2 — `/v1/auth` +
-`/v1/users` (**done**); Member 3 — `/v1/animals` CRUD (model exists);
+`/v1/users` (**done**); Member 3 — `/v1/animals` CRUD (**done**);
 Member 4 — `GET /v1/analysis` history endpoint; Member 5 — vet directory
 endpoint (posts/comments endpoints already exist). Keep `frontend/src/types/index.ts`
 in sync with backend schemas — it is the shared contract.
@@ -100,9 +100,12 @@ Tables are created and demo data (a pet owner, a veterinarian, sample posts) is
 seeded automatically on first startup. No PostgreSQL handy? Set
 `DATABASE_URL=sqlite:///./uep_emmy.db` in `.env` for a throwaway local database.
 
-> **Schema changed with auth (July 2026):** `users` gained `password_hash`,
-> `bio`, and `avatar_url`. There are no migrations yet — if you have an older
-> local database, delete it (e.g. `uep_emmy.db`) and let the app recreate it.
+> **Schema changed (July 2026):** `users` gained `password_hash`, `bio`, and
+> `avatar_url` (auth); `animals` gained `birth_date` and `photo_url` (pets).
+> There are no migrations yet — if you have an older local database, delete it
+> (e.g. `uep_emmy.db`) and let the app recreate it.
+> Thumbnail crop columns are added automatically at startup, so this
+> feature does not require another database reset.
 
 API docs: <http://localhost:8000/docs>
 
@@ -114,6 +117,9 @@ API docs: <http://localhost:8000/docs>
 | `PATCH /v1/users/me`           | Update profile (name, bio, email, clinic, license) |
 | `POST /v1/users/me/password`   | Change password                                    |
 | `POST /v1/users/me/avatar`     | Multipart profile-photo upload                     |
+| `GET/POST /v1/animals`         | List / create the signed-in user's pets            |
+| `GET/PATCH/DELETE /v1/animals/{id}` | Pet detail / update / remove (owner only)     |
+| `POST /v1/animals/{id}/photo`  | Multipart pet-photo upload                         |
 | `POST /v1/analysis/upload`     | Multipart image upload → stored + mock AI analysis |
 | `GET /v1/posts`                | Recent community posts (newest first, paginated)   |
 | `POST /v1/posts`               | Create a post                                      |

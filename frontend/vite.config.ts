@@ -8,8 +8,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Forward API and media requests to the FastAPI backend in development.
-      "/v1": "http://localhost:8000",
-      "/media": "http://localhost:8000",
+      // Use IPv4 explicitly so Windows does not resolve localhost to an IPv6
+      // address that Docker Desktop is not ready to accept.
+      "/v1": "http://127.0.0.1:8000",
+      "/media": "http://127.0.0.1:8000",
     },
   },
 });
