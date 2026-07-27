@@ -179,12 +179,6 @@ export default function AppLayout() {
         )}
       </header>
 
-      <div className="border-b border-amber-200 bg-amber-50">
-        <p className="mx-auto max-w-6xl px-4 py-2 text-center text-xs font-medium text-amber-900">
-          Public student demo — please use test accounts, sample details, and non-sensitive images only.
-        </p>
-      </div>
-
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <Outlet />
       </main>
