@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785181742609,
+      "tag": "0000_fast_naoko",
+      "breakpoints": true
+    }
+  ]
+}
