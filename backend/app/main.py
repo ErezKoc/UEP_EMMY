@@ -34,6 +34,11 @@ def ensure_compatibility_columns() -> None:
     analysis_additions = {
         "user_id": "ALTER TABLE ai_analysis_logs ADD COLUMN user_id CHAR(32)",
     }
+    post_columns = {column["name"] for column in inspector.get_columns("posts")}
+    post_additions = {
+        "analysis_id": "ALTER TABLE posts ADD COLUMN analysis_id CHAR(32)",
+        "image_url": "ALTER TABLE posts ADD COLUMN image_url VARCHAR(1024)",
+    }
     missing = [
         statement
         for name, statement in animal_additions.items()
@@ -44,6 +49,11 @@ def ensure_compatibility_columns() -> None:
         for name, statement in analysis_additions.items()
         if name not in analysis_columns
     )
+    missing.extend(
+        statement
+        for name, statement in post_additions.items()
+        if name not in post_columns
+    )
     with engine.begin() as connection:
         for statement in missing:
             connection.execute(text(statement))
@@ -52,6 +62,9 @@ def ensure_compatibility_columns() -> None:
                 "CREATE INDEX IF NOT EXISTS ix_ai_analysis_logs_user_id "
                 "ON ai_analysis_logs (user_id)"
             )
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_posts_analysis_id ON posts (analysis_id)")
         )
 
 

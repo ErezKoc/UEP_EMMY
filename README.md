@@ -67,15 +67,15 @@ the `primary-*` Tailwind classes, defined once in `src/index.css`.
 
 Backend work each member owns alongside their pages: Member 2 — `/v1/auth` +
 `/v1/users` (**done**); Member 3 — `/v1/animals` CRUD (**done**);
-Member 4 — `GET /v1/analysis` history endpoint (**done**); Member 5 — vet
-directory endpoint (posts/comments endpoints already exist). Keep
+Member 4 — `GET /v1/analysis` history endpoint (**done**); Member 5 — community
+feed, posts/comments, and veterinarian directory (**done**). Keep
 `frontend/src/types/index.ts` in sync with backend schemas — it is the shared
 contract.
 
-**Member 5, the share-to-community handoff is ready for you:** the analysis
-result page navigates to `/community/new` with route state
-`{ prefill: PostPrefill }` (see `types/index.ts`) — a suggested title, content,
-`image_url`, and `analysis_id` to pre-fill the new-post form.
+The analysis result page's **Share to community** action navigates to
+`/community/new` with a `PostPrefill`. The composer uses its suggested title,
+content, analyzed image, and analysis ID; the API verifies that the attached
+analysis belongs to the signed-in author.
 
 ### Auth & session (Member 2 — done)
 
@@ -108,10 +108,12 @@ seeded automatically on first startup. No PostgreSQL handy? Set
 
 > **Schema changed (July 2026):** `users` gained `password_hash`, `bio`, and
 > `avatar_url` (auth); `animals` gained `birth_date`, `photo_url`, and thumbnail
-> focus fields (pets); `ai_analysis_logs` gained `user_id` (history). There are
-> no Alembic migrations yet. Thumbnail crop columns and analysis ownership are
-> added automatically at startup without deleting existing data. Databases that
-> predate the auth or base pet-photo fields may still need to be recreated.
+> focus fields (pets); `ai_analysis_logs` gained `user_id` (history); and `posts`
+> gained `analysis_id` plus `image_url` (community sharing). There are no Alembic
+> migrations yet. The newer thumbnail, analysis ownership, and post attachment
+> columns are added automatically at startup without deleting existing data.
+> Databases that predate the auth or base pet-photo fields may still need to be
+> recreated.
 
 API docs: <http://localhost:8000/docs>
 
@@ -128,10 +130,11 @@ API docs: <http://localhost:8000/docs>
 | `POST /v1/animals/{id}/photo`  | Multipart pet-photo upload                         |
 | `POST /v1/analysis/upload`     | Multipart image upload → stored + mock AI analysis; optional `animal_id` links it to your pet (auth required for linking) |
 | `GET /v1/analysis`             | Your past analyses, newest first; `?animal_id=` filters by pet |
-| `GET /v1/posts`                | Recent community posts (newest first, paginated)   |
-| `POST /v1/posts`               | Create a post                                      |
+| `GET /v1/posts`                | Paginated posts; supports `q` and `author_role`    |
+| `POST /v1/posts`               | Create a signed-in user's post; optional analysis  |
 | `GET /v1/posts/{id}`           | Post with comments                                 |
-| `POST /v1/posts/{id}/comments` | Comment on a post                                  |
+| `POST /v1/posts/{id}/comments` | Add a signed-in user's comment                     |
+| `GET /v1/vets`                 | Public veterinarian directory; supports `q`        |
 | `GET /healthz`                 | Health check                                       |
 
 ## Running the frontend
@@ -163,9 +166,6 @@ the backend first.
   and HMAC-signed tokens, standard library only. Before any real deployment,
   swap for a vetted stack (passlib/bcrypt + JWT library, or Amazon Cognito) and
   set a real `SECRET_KEY` in `.env`.
-- `POST /v1/posts` still accepts an optional `author_id` and falls back to the
-  seeded demo owner. Member 5: switch it to `Depends(get_current_user)` from
-  `app/api/deps.py` and drop `author_id` from the payloads.
 - Vet accounts are self-declared at signup; the license number is stored but not
   verified. A verification flow (document upload + admin review) is planned.
 - Uploads are buffered in memory (bounded by `MAX_UPLOAD_MB`); stream to storage

@@ -8,15 +8,12 @@ from app.schemas.user import UserRead
 
 class PostCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    content: str = Field(min_length=1)
-    # Optional while the platform has no authentication: the API falls back to
-    # the seeded demo owner when omitted.
-    author_id: uuid.UUID | None = None
+    content: str = Field(min_length=1, max_length=10000)
+    analysis_id: uuid.UUID | None = None
 
 
 class CommentCreate(BaseModel):
-    content: str = Field(min_length=1)
-    author_id: uuid.UUID | None = None
+    content: str = Field(min_length=1, max_length=5000)
 
 
 class CommentRead(BaseModel):
@@ -34,6 +31,8 @@ class PostRead(BaseModel):
     id: uuid.UUID
     title: str
     content: str
+    analysis_id: uuid.UUID | None
+    image_url: str | None
     author: UserRead
     comment_count: int
     created_at: UTCDateTime

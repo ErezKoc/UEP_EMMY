@@ -1,69 +1,75 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models import Comment, Post, User
+from app.models import AIAnalysisLog, Comment, Post, User, UserRole
 from app.schemas import CommentCreate, CommentRead, PostCreate, PostDetail, PostRead
 
 router = APIRouter()
-
-
-def _resolve_author(db: Session, author_id: uuid.UUID | None) -> User:
-    """Resolve the acting user.
-
-    Placeholder for real authentication: once auth lands, this becomes a
-    `get_current_user` dependency and `author_id` disappears from the payloads.
-    Until then an explicit id is validated, and omitting it falls back to the
-    seeded demo owner so the frontend works out of the box.
-    """
-    if author_id is not None:
-        author = db.get(User, author_id)
-        if author is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=f"User {author_id} not found."
-            )
-        return author
-
-    author = db.scalars(select(User).order_by(User.created_at).limit(1)).first()
-    if author is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No users exist yet; provide an author_id.",
-        )
-    return author
 
 
 @router.get("", response_model=list[PostRead])
 def list_posts(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=100),
+    author_role: UserRole | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[Post]:
-    """Return recent community posts, newest first."""
+    """Return recent community posts with optional topic and author filters."""
     statement = (
         select(Post)
+        .join(Post.author)
         .options(selectinload(Post.author), selectinload(Post.comments))
         .order_by(Post.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
-    return list(db.scalars(statement).all())
+    if q and (term := q.strip()):
+        pattern = f"%{term}%"
+        statement = statement.where(
+            or_(Post.title.ilike(pattern), Post.content.ilike(pattern), User.display_name.ilike(pattern))
+        )
+    if author_role is not None:
+        statement = statement.where(User.role == author_role)
+    return list(db.scalars(statement).unique().all())
 
 
 @router.post("", response_model=PostDetail, status_code=status.HTTP_201_CREATED)
-def create_post(payload: PostCreate, db: Session = Depends(get_db)) -> Post:
-    author = _resolve_author(db, payload.author_id)
-    post = Post(title=payload.title, content=payload.content, author_id=author.id)
+def create_post(
+    payload: PostCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Post:
+    title = payload.title.strip()
+    content = payload.content.strip()
+    if not title or not content:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Title and content are required.")
+
+    image_url: str | None = None
+    if payload.analysis_id is not None:
+        analysis = db.get(AIAnalysisLog, payload.analysis_id)
+        if analysis is None or analysis.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis {payload.analysis_id} not found.",
+            )
+        image_url = analysis.image_url
+
+    post = Post(
+        title=title,
+        content=content,
+        author_id=current_user.id,
+        analysis_id=payload.analysis_id,
+        image_url=image_url,
+    )
     db.add(post)
     db.commit()
-    db.refresh(post)
-    # Load relationships while the session is open so serialization never
-    # triggers a lazy load on a closed session.
-    _ = post.author, post.comments
-    return post
+    return get_post(post.id, db)
 
 
 @router.get("/{post_id}", response_model=PostDetail)
@@ -78,9 +84,7 @@ def get_post(post_id: uuid.UUID, db: Session = Depends(get_db)) -> Post:
     )
     post = db.scalars(statement).first()
     if post is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Post {post_id} not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post {post_id} not found.")
     return post
 
 
@@ -88,15 +92,19 @@ def get_post(post_id: uuid.UUID, db: Session = Depends(get_db)) -> Post:
     "/{post_id}/comments", response_model=CommentRead, status_code=status.HTTP_201_CREATED
 )
 def create_comment(
-    post_id: uuid.UUID, payload: CommentCreate, db: Session = Depends(get_db)
+    post_id: uuid.UUID,
+    payload: CommentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Comment:
     if db.get(Post, post_id) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Post {post_id} not found."
-        )
-    author = _resolve_author(db, payload.author_id)
-    comment = Comment(post_id=post_id, author_id=author.id, content=payload.content)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post {post_id} not found.")
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Comment is required.")
+    comment = Comment(post_id=post_id, author_id=current_user.id, content=content)
     db.add(comment)
     db.commit()
     db.refresh(comment)
+    _ = comment.author
     return comment

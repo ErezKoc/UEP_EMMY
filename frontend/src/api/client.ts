@@ -9,6 +9,8 @@ import type {
   ProfileUpdatePayload,
   SignupPayload,
   User,
+  UserRole,
+  Veterinarian,
 } from "../types";
 
 // In development the Vite dev server proxies /v1 and /media to FastAPI
@@ -150,13 +152,46 @@ export async function uploadAnimalPhoto(animalId: string, file: File): Promise<A
 
 // -------------------------------------------------------------------- posts
 
-export async function getPosts(limit = 20, offset = 0): Promise<Post[]> {
-  const response = await fetch(`${API_BASE}/posts?limit=${limit}&offset=${offset}`);
+export interface PostQuery {
+  limit?: number;
+  offset?: number;
+  q?: string;
+  authorRole?: UserRole | "";
+}
+
+export async function getPosts(query: PostQuery = {}): Promise<Post[]> {
+  const params = new URLSearchParams({
+    limit: String(query.limit ?? 20),
+    offset: String(query.offset ?? 0),
+  });
+  if (query.q?.trim()) params.set("q", query.q.trim());
+  if (query.authorRole) params.set("author_role", query.authorRole);
+  const response = await fetch(`${API_BASE}/posts?${params}`);
   return parseResponse<Post[]>(response);
 }
 
-export function createPost(title: string, content: string): Promise<PostDetail> {
-  return requestJson<PostDetail>("/posts", "POST", { title, content });
+export function getPost(postId: string): Promise<PostDetail> {
+  return requestJson<PostDetail>(`/posts/${postId}`, "GET");
+}
+
+export function createPost(payload: {
+  title: string;
+  content: string;
+  analysis_id?: string | null;
+}): Promise<PostDetail> {
+  return requestJson<PostDetail>("/posts", "POST", payload);
+}
+
+export function createComment(postId: string, content: string) {
+  return requestJson<import("../types").Comment>(`/posts/${postId}/comments`, "POST", { content });
+}
+
+export async function getVeterinarians(q = ""): Promise<Veterinarian[]> {
+  const params = new URLSearchParams();
+  if (q.trim()) params.set("q", q.trim());
+  const suffix = params.size > 0 ? `?${params}` : "";
+  const response = await fetch(`${API_BASE}/vets${suffix}`);
+  return parseResponse<Veterinarian[]>(response);
 }
 
 // ----------------------------------------------------------------- analysis

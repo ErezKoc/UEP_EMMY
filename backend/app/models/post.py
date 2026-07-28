@@ -20,6 +20,10 @@ class Post(Base):
     author_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    analysis_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ai_analysis_logs.id", ondelete="SET NULL"), index=True
+    )
+    image_url: Mapped[str | None] = mapped_column(String(1024))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )

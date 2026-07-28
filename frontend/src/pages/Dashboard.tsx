@@ -14,7 +14,7 @@ export default function Dashboard() {
         <AnalysisCard analysis={analysis} />
       </div>
 
-      <CommunityFeed />
+      <CommunityFeed compact />
     </div>
   );
 }

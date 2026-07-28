@@ -95,6 +95,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS posts (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL,
     author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    analysis_id TEXT REFERENCES ai_analysis_logs(id) ON DELETE SET NULL, image_url TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS comments (
@@ -103,7 +104,8 @@ const SCHEMA = [
     content TEXT NOT NULL, created_at TEXT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS ai_analysis_logs (
-    id TEXT PRIMARY KEY, animal_id TEXT REFERENCES animals(id) ON DELETE SET NULL,
+    id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    animal_id TEXT REFERENCES animals(id) ON DELETE SET NULL,
     image_key TEXT NOT NULL, image_url TEXT NOT NULL, model_version TEXT NOT NULL,
     species TEXT NOT NULL, species_confidence REAL NOT NULL, result_json TEXT NOT NULL,
     created_at TEXT NOT NULL
@@ -142,6 +144,18 @@ function publicUser(row: UserRow) {
     clinic_name: row.clinic_name,
     license_number: row.license_number,
     created_at: row.created_at,
+  };
+}
+
+function publicVet(row: UserRow) {
+  return {
+    id: row.id,
+    display_name: row.display_name,
+    role: row.role,
+    bio: row.bio,
+    avatar_url: row.avatar_url,
+    clinic_name: row.clinic_name,
+    license_number: row.license_number,
   };
 }
 
@@ -193,6 +207,23 @@ async function verifyPassword(password: string, stored: string): Promise<boolean
 
 async function initializeDatabase(env: Env): Promise<void> {
   await env.DB.batch(SCHEMA.map((statement) => env.DB.prepare(statement)));
+  const postColumns = await env.DB.prepare("PRAGMA table_info(posts)").all<{ name: string }>();
+  const analysisColumns = await env.DB.prepare("PRAGMA table_info(ai_analysis_logs)").all<{ name: string }>();
+  const compatibility: D1PreparedStatement[] = [];
+  if (!postColumns.results.some((column) => column.name === "analysis_id")) {
+    compatibility.push(env.DB.prepare("ALTER TABLE posts ADD COLUMN analysis_id TEXT"));
+  }
+  if (!postColumns.results.some((column) => column.name === "image_url")) {
+    compatibility.push(env.DB.prepare("ALTER TABLE posts ADD COLUMN image_url TEXT"));
+  }
+  if (!analysisColumns.results.some((column) => column.name === "user_id")) {
+    compatibility.push(env.DB.prepare("ALTER TABLE ai_analysis_logs ADD COLUMN user_id TEXT"));
+  }
+  if (compatibility.length > 0) await env.DB.batch(compatibility);
+  await env.DB.batch([
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS analysis_user_idx ON ai_analysis_logs(user_id)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS posts_analysis_idx ON posts(analysis_id)"),
+  ]);
   const existing = await env.DB.prepare("SELECT id FROM users LIMIT 1").first<{ id: string }>();
   if (existing) return;
 
@@ -367,7 +398,7 @@ function authorFromJoined(row: Record<string, unknown>): ReturnType<typeof publi
 }
 
 const POST_SELECT = `
-  SELECT p.id, p.title, p.content, p.created_at,
+  SELECT p.id, p.title, p.content, p.analysis_id, p.image_url, p.created_at,
     u.id AS author_user_id, u.email AS author_email, u.display_name AS author_display_name,
     u.bio AS author_bio, u.avatar_url AS author_avatar_url, u.role AS author_role,
     u.clinic_name AS author_clinic_name, u.license_number AS author_license_number,
@@ -380,6 +411,8 @@ function postFromJoined(row: Record<string, unknown>) {
     id: String(row.id),
     title: String(row.title),
     content: String(row.content),
+    analysis_id: (row.analysis_id as string | null) ?? null,
+    image_url: (row.image_url as string | null) ?? null,
     author: authorFromJoined(row),
     comment_count: Number(row.comment_count),
     created_at: String(row.created_at),
@@ -645,8 +678,25 @@ async function handlePosts(request: Request, env: Env, url: URL): Promise<Respon
   if (path === "/v1/posts" && request.method === "GET") {
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? 20)));
     const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0));
-    const rows = await env.DB.prepare(`${POST_SELECT} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`)
-      .bind(limit, offset)
+    const term = (url.searchParams.get("q") ?? "").trim();
+    const role = (url.searchParams.get("author_role") ?? "").trim();
+    if (role && role !== "owner" && role !== "veterinarian") {
+      throw new HttpError(422, "Invalid author role.");
+    }
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    if (term) {
+      conditions.push("(p.title LIKE ? COLLATE NOCASE OR p.content LIKE ? COLLATE NOCASE OR u.display_name LIKE ? COLLATE NOCASE)");
+      const pattern = `%${term}%`;
+      values.push(pattern, pattern, pattern);
+    }
+    if (role) {
+      conditions.push("u.role = ?");
+      values.push(role);
+    }
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : "";
+    const rows = await env.DB.prepare(`${POST_SELECT}${where} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`)
+      .bind(...values, limit, offset)
       .all<Record<string, unknown>>();
     return json(rows.results.map(postFromJoined));
   }
@@ -655,13 +705,23 @@ async function handlePosts(request: Request, env: Env, url: URL): Promise<Respon
     const title = String(body.title ?? "").trim();
     const content = String(body.content ?? "").trim();
     if (!title || !content) throw new HttpError(422, "Title and content are required.");
-    const actor = await currentUser(request, env) ?? (await userById(env, OWNER_ID));
-    if (!actor) throw new HttpError(409, "No demo user is available.");
+    const actor = await requireUser(request, env);
+    const analysisId = String(body.analysis_id ?? "").trim() || null;
+    let imageUrl: string | null = null;
+    if (analysisId) {
+      const analysis = await env.DB.prepare(
+        "SELECT image_url FROM ai_analysis_logs WHERE id = ? AND user_id = ?",
+      ).bind(analysisId, actor.id).first<{ image_url: string }>();
+      if (!analysis) throw new HttpError(404, `Analysis ${analysisId} not found.`);
+      imageUrl = analysis.image_url;
+    }
     const id = crypto.randomUUID();
     const created = nowIso();
     await env.DB.prepare(
-      "INSERT INTO posts (id, title, content, author_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).bind(id, title, content, actor.id, created, created).run();
+      `INSERT INTO posts
+       (id, title, content, author_id, analysis_id, image_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(id, title, content, actor.id, analysisId, imageUrl, created, created).run();
     return json(await postDetail(env, id), 201);
   }
   const commentMatch = path.match(/^\/v1\/posts\/([^/]+)\/comments$/);
@@ -671,8 +731,7 @@ async function handlePosts(request: Request, env: Env, url: URL): Promise<Respon
     const body = await readJson<Record<string, unknown>>(request);
     const content = String(body.content ?? "").trim();
     if (!content) throw new HttpError(422, "Comment is required.");
-    const actor = await currentUser(request, env) ?? (await userById(env, OWNER_ID));
-    if (!actor) throw new HttpError(409, "No demo user is available.");
+    const actor = await requireUser(request, env);
     const id = crypto.randomUUID();
     const createdAt = nowIso();
     await env.DB.prepare(
@@ -685,13 +744,44 @@ async function handlePosts(request: Request, env: Env, url: URL): Promise<Respon
   return null;
 }
 
-async function handleAnalysis(request: Request, env: Env, path: string): Promise<Response | null> {
+async function handleAnalysis(request: Request, env: Env, url: URL): Promise<Response | null> {
+  const path = url.pathname;
+  if (path === "/v1/analysis" && request.method === "GET") {
+    const actor = await requireUser(request, env);
+    const animalId = (url.searchParams.get("animal_id") ?? "").trim();
+    const condition = animalId ? " AND l.animal_id = ?" : "";
+    const statement = env.DB.prepare(
+      `SELECT l.id, l.image_url, l.created_at, l.result_json,
+        a.id AS animal_id, a.name, a.species, a.breed, a.birth_date, a.photo_url,
+        a.photo_position_x, a.photo_position_y, a.photo_zoom, a.age_category,
+        a.owner_id, a.created_at AS animal_created_at
+       FROM ai_analysis_logs l LEFT JOIN animals a ON a.id = l.animal_id
+       WHERE l.user_id = ?${condition} ORDER BY l.created_at DESC`,
+    );
+    const rows = await (animalId ? statement.bind(actor.id, animalId) : statement.bind(actor.id))
+      .all<Record<string, unknown>>();
+    return json(rows.results.map((row) => ({
+      id: String(row.id),
+      image_url: String(row.image_url),
+      created_at: String(row.created_at),
+      result: JSON.parse(String(row.result_json)),
+      animal: row.animal_id ? {
+        id: String(row.animal_id), name: String(row.name), species: String(row.species),
+        breed: (row.breed as string | null) ?? null, birth_date: (row.birth_date as string | null) ?? null,
+        photo_url: (row.photo_url as string | null) ?? null, photo_position_x: Number(row.photo_position_x),
+        photo_position_y: Number(row.photo_position_y), photo_zoom: Number(row.photo_zoom),
+        age_category: String(row.age_category), owner_id: String(row.owner_id),
+        created_at: String(row.animal_created_at),
+      } : null,
+    })));
+  }
   if (path !== "/v1/analysis/upload" || request.method !== "POST") return null;
   const { form, file } = await uploadedFile(request);
   const animalId = String(form.get("animal_id") ?? "").trim() || null;
+  const actor = await currentUser(request, env);
   if (animalId) {
-    const animal = await env.DB.prepare("SELECT id FROM animals WHERE id = ?").bind(animalId).first();
-    if (!animal) throw new HttpError(404, `Animal ${animalId} not found.`);
+    if (!actor) throw new HttpError(401, "Sign in to link an analysis to one of your pets.");
+    await ownedAnimal(env, animalId, actor.id);
   }
   const stored = await storeImage(env, "uploads", file);
   const result = await analyzeImage(stored.bytes);
@@ -699,10 +789,11 @@ async function handleAnalysis(request: Request, env: Env, path: string): Promise
   const createdAt = nowIso();
   await env.DB.prepare(
     `INSERT INTO ai_analysis_logs
-     (id, animal_id, image_key, image_url, model_version, species, species_confidence, result_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, user_id, animal_id, image_key, image_url, model_version, species, species_confidence, result_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
+    actor?.id ?? null,
     animalId,
     stored.key,
     stored.url,
@@ -732,15 +823,23 @@ async function routeApi(request: Request, env: Env, url: URL): Promise<Response>
     () => handleUsers(request, env, url.pathname),
     () => handleAnimals(request, env, url.pathname),
     () => handlePosts(request, env, url),
-    () => handleAnalysis(request, env, url.pathname),
+    () => handleAnalysis(request, env, url),
   ];
   for (const handler of handlers) {
     const response = await handler();
     if (response) return response;
   }
   if (url.pathname === "/v1/vets" && request.method === "GET") {
-    const rows = await env.DB.prepare("SELECT * FROM users WHERE role = 'veterinarian' ORDER BY display_name").all<UserRow>();
-    return json(rows.results.map(publicUser));
+    const term = (url.searchParams.get("q") ?? "").trim();
+    const statement = term
+      ? env.DB.prepare(
+        `SELECT * FROM users WHERE role = 'veterinarian'
+         AND (display_name LIKE ? COLLATE NOCASE OR clinic_name LIKE ? COLLATE NOCASE OR bio LIKE ? COLLATE NOCASE)
+         ORDER BY display_name`,
+      ).bind(`%${term}%`, `%${term}%`, `%${term}%`)
+      : env.DB.prepare("SELECT * FROM users WHERE role = 'veterinarian' ORDER BY display_name");
+    const rows = await statement.all<UserRow>();
+    return json(rows.results.map(publicVet));
   }
   throw new HttpError(404, "Endpoint not found.");
 }

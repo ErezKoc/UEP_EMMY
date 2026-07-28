@@ -94,7 +94,14 @@ export default function App() {
               />
 
               <Route path="/community" element={<CommunityPage />} />
-              <Route path="/community/new" element={<NewPostPage />} />
+              <Route
+                path="/community/new"
+                element={
+                  <RequireAuth>
+                    <NewPostPage />
+                  </RequireAuth>
+                }
+              />
               <Route path="/community/:postId" element={<PostDetailPage />} />
               <Route path="/vets" element={<VetsPage />} />
 

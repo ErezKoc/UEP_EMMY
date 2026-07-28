@@ -117,9 +117,21 @@ export interface Post {
   id: string;
   title: string;
   content: string;
+  analysis_id: string | null;
+  image_url: string | null;
   author: User;
   comment_count: number;
   created_at: string;
+}
+
+export interface Veterinarian {
+  id: string;
+  display_name: string;
+  role: "veterinarian";
+  bio: string | null;
+  avatar_url: string | null;
+  clinic_name: string | null;
+  license_number: string | null;
 }
 
 export interface Comment {

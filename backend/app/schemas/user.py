@@ -20,6 +20,20 @@ class UserRead(BaseModel):
     created_at: UTCDateTime
 
 
+class VeterinarianRead(BaseModel):
+    """Public veterinarian profile; private account fields stay private."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    display_name: str
+    role: UserRole
+    bio: str | None = None
+    avatar_url: str | None = None
+    clinic_name: str | None = None
+    license_number: str | None = None
+
+
 class UserUpdate(BaseModel):
     """Partial profile update; only provided fields change."""
 
