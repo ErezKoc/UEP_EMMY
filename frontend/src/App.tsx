@@ -76,8 +76,22 @@ export default function App() {
                 }
               />
 
-              <Route path="/analyze" element={<AnalyzePage />} />
-              <Route path="/analysis/history" element={<AnalysisHistoryPage />} />
+              <Route
+                path="/analyze"
+                element={
+                  <RequireAuth>
+                    <AnalyzePage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/analysis/history"
+                element={
+                  <RequireAuth>
+                    <AnalysisHistoryPage />
+                  </RequireAuth>
+                }
+              />
 
               <Route path="/community" element={<CommunityPage />} />
               <Route path="/community/new" element={<NewPostPage />} />

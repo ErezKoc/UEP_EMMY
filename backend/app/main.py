@@ -17,8 +17,9 @@ settings = get_settings()
 
 def ensure_compatibility_columns() -> None:
     """Apply small MVP-era additions until Alembic is introduced."""
-    columns = {column["name"] for column in inspect(engine).get_columns("animals")}
-    additions = {
+    inspector = inspect(engine)
+    animal_columns = {column["name"] for column in inspector.get_columns("animals")}
+    animal_additions = {
         "photo_position_x": (
             "ALTER TABLE animals ADD COLUMN photo_position_x INTEGER NOT NULL DEFAULT 50"
         ),
@@ -27,12 +28,31 @@ def ensure_compatibility_columns() -> None:
         ),
         "photo_zoom": "ALTER TABLE animals ADD COLUMN photo_zoom REAL NOT NULL DEFAULT 1.0",
     }
-    missing = [statement for name, statement in additions.items() if name not in columns]
-    if not missing:
-        return
+    analysis_columns = {
+        column["name"] for column in inspector.get_columns("ai_analysis_logs")
+    }
+    analysis_additions = {
+        "user_id": "ALTER TABLE ai_analysis_logs ADD COLUMN user_id CHAR(32)",
+    }
+    missing = [
+        statement
+        for name, statement in animal_additions.items()
+        if name not in animal_columns
+    ]
+    missing.extend(
+        statement
+        for name, statement in analysis_additions.items()
+        if name not in analysis_columns
+    )
     with engine.begin() as connection:
         for statement in missing:
             connection.execute(text(statement))
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_analysis_logs_user_id "
+                "ON ai_analysis_logs (user_id)"
+            )
+        )
 
 
 @asynccontextmanager

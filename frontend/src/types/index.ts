@@ -93,6 +93,26 @@ export interface AnalysisResponse {
   result: AnalysisResult;
 }
 
+export interface AnalysisHistoryItem {
+  id: string;
+  image_url: string;
+  created_at: string;
+  result: AnalysisResult;
+  animal: Animal | null;
+}
+
+/**
+ * Route state passed to /community/new by the "Share to community" action
+ * (Member 4 → Member 5 contract): read it via useLocation().state?.prefill
+ * and pre-fill the new-post form.
+ */
+export interface PostPrefill {
+  analysis_id: string;
+  image_url: string;
+  title: string;
+  content: string;
+}
+
 export interface Post {
   id: string;
   title: string;

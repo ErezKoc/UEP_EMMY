@@ -1,4 +1,5 @@
 import type {
+  AnalysisHistoryItem,
   AnalysisResponse,
   Animal,
   AnimalPayload,
@@ -160,9 +161,13 @@ export function createPost(title: string, content: string): Promise<PostDetail> 
 
 // ----------------------------------------------------------------- analysis
 
-export async function uploadForAnalysis(file: File): Promise<AnalysisResponse> {
+export async function uploadForAnalysis(
+  file: File,
+  animalId?: string | null,
+): Promise<AnalysisResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  if (animalId) formData.append("animal_id", animalId);
 
   const response = await fetch(`${API_BASE}/analysis/upload`, {
     method: "POST",
@@ -170,4 +175,11 @@ export async function uploadForAnalysis(file: File): Promise<AnalysisResponse> {
     body: formData,
   });
   return parseResponse<AnalysisResponse>(response);
+}
+
+/** The signed-in user's past analyses, newest first, optionally per pet. */
+export async function getAnalyses(animalId?: string | null): Promise<AnalysisHistoryItem[]> {
+  const query = animalId ? `?animal_id=${animalId}` : "";
+  const response = await fetch(`${API_BASE}/analysis${query}`, { headers: authHeaders() });
+  return parseResponse<AnalysisHistoryItem[]>(response);
 }

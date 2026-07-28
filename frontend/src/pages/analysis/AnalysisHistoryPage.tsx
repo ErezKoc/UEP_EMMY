@@ -1,14 +1,155 @@
-import PlaceholderPage from "../../components/layout/PlaceholderPage";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ApiError, getAnalyses, getAnimals } from "../../api/client";
+import { ArrowLeftIcon, Badge, Button, EmptyState, Select, Spinner } from "../../components/ui";
+import { capitalize, formatPercent, formatRelativeTime } from "../../lib/format";
+import type { AnalysisHistoryItem, Animal } from "../../types";
 
-// Member 4 (AI analysis): past analyses of the current user.
-// Needs a GET /v1/analysis list endpoint (the backend already stores every run in
-// the AIAnalysisLog table — only the read endpoint is missing).
-export default function AnalysisHistoryPage() {
+const ALL_PETS = "";
+
+function HistoryRow({ item }: { item: AnalysisHistoryItem }) {
+  const { result } = item;
+  const topBreed = result.breed_candidates[0];
   return (
-    <PlaceholderPage
-      title="Analysis history"
-      owner="Member 4"
-      description="List of past AI analyses (thumbnail, species/breed/age, date), filterable by pet, each linking back to its full result."
-    />
+    <li className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
+      <img
+        src={item.image_url}
+        alt={`Analyzed ${result.species}`}
+        className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-slate-800">{capitalize(result.species)}</span>
+          <span className="text-sm text-slate-500">
+            {formatPercent(result.species_confidence)} confidence
+          </span>
+          {item.animal ? (
+            <Badge variant="primary">{item.animal.name}</Badge>
+          ) : (
+            <Badge variant="neutral">Not linked</Badge>
+          )}
+        </div>
+        <p className="mt-1 truncate text-sm text-slate-600">
+          {topBreed
+            ? `Likely ${topBreed.breed} (${formatPercent(topBreed.confidence)})`
+            : "No breed estimate"}
+          {" · "}
+          {result.age_estimate.category} age
+        </p>
+      </div>
+      <time className="shrink-0 text-xs text-slate-400" dateTime={item.created_at}>
+        {formatRelativeTime(item.created_at)}
+      </time>
+    </li>
+  );
+}
+
+export default function AnalysisHistoryPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const petFilter = searchParams.get("pet") ?? ALL_PETS;
+
+  const [items, setItems] = useState<AnalysisHistoryItem[]>([]);
+  const [pets, setPets] = useState<Animal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAnimals()
+      .then(setPets)
+      .catch(() => setPets([]));
+  }, []);
+
+  const loadItems = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      setItems(await getAnalyses(petFilter === ALL_PETS ? null : petFilter));
+    } catch (err) {
+      setLoadError(
+        err instanceof ApiError ? err.message : "Could not load the history. Is the backend running?",
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, [petFilter]);
+
+  useEffect(() => {
+    void loadItems();
+  }, [loadItems]);
+
+  const filterOptions = useMemo(
+    () => [
+      { value: ALL_PETS, label: "All analyses" },
+      ...pets.map((pet) => ({ value: pet.id, label: `${pet.name} (${capitalize(pet.species)})` })),
+    ],
+    [pets],
+  );
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <Link
+        to="/analyze"
+        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+      >
+        <ArrowLeftIcon className="h-4 w-4" />
+        Back to analyze
+      </Link>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Analysis history</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Every AI analysis you ran, newest first.
+          </p>
+        </div>
+        <div className="w-56">
+          <Select
+            label="Filter by pet"
+            value={petFilter}
+            onChange={(event) => {
+              const value = event.target.value;
+              setSearchParams(value === ALL_PETS ? {} : { pet: value });
+            }}
+            options={filterOptions}
+          />
+        </div>
+      </div>
+
+      <div className="mt-6">
+        {isLoading && (
+          <div className="flex justify-center py-16">
+            <Spinner />
+          </div>
+        )}
+
+        {!isLoading && loadError && (
+          <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+            {loadError}{" "}
+            <button onClick={() => void loadItems()} className="font-medium underline">
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!isLoading && !loadError && items.length === 0 && (
+          <EmptyState
+            title={petFilter === ALL_PETS ? "No analyses yet" : "No analyses for this pet yet"}
+            description="Upload a photo and the result will be stored here automatically."
+            action={
+              <Link to={petFilter === ALL_PETS ? "/analyze" : `/analyze?pet=${petFilter}`}>
+                <Button>Analyze a photo</Button>
+              </Link>
+            }
+          />
+        )}
+
+        {!isLoading && !loadError && items.length > 0 && (
+          <ul className="space-y-3">
+            {items.map((item) => (
+              <HistoryRow key={item.id} item={item} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }

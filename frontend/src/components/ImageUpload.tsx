@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DragEvent, ChangeEvent } from "react";
 import { ApiError, uploadForAnalysis } from "../api/client";
 import { ImageIcon } from "./ui/icons";
@@ -7,16 +7,38 @@ import type { AnalysisResponse } from "../types";
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE_MB = 10;
 
+// The analysis is a single request, so the bar is staged rather than measured:
+// labels advance on a timer while we wait, and the last stage holds until the
+// response lands. Honest enough for a demo, and far clearer than a bare spinner.
+const PROGRESS_STAGES = [
+  { label: "Uploading photo…", width: "25%" },
+  { label: "Detecting species…", width: "55%" },
+  { label: "Estimating breed and age…", width: "85%" },
+];
+const STAGE_INTERVAL_MS = 900;
+
 interface ImageUploadProps {
   onAnalysisComplete: (analysis: AnalysisResponse) => void;
+  /** Pet to link the analysis to (Member 4's pet picker). Omit for unlinked. */
+  animalId?: string | null;
 }
 
-export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
+export default function ImageUpload({ onAnalysisComplete, animalId }: ImageUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [stageIndex, setStageIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isUploading) return;
+    setStageIndex(0);
+    const timer = setInterval(() => {
+      setStageIndex((current) => Math.min(current + 1, PROGRESS_STAGES.length - 1));
+    }, STAGE_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [isUploading]);
 
   const processFile = async (file: File) => {
     setError(null);
@@ -37,7 +59,7 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
 
     setIsUploading(true);
     try {
-      const analysis = await uploadForAnalysis(file);
+      const analysis = await uploadForAnalysis(file, animalId);
       onAnalysisComplete(analysis);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed. Is the backend running?");
@@ -58,6 +80,8 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
     if (file) void processFile(file);
     event.target.value = "";
   };
+
+  const stage = PROGRESS_STAGES[stageIndex];
 
   return (
     <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
@@ -82,8 +106,8 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
         onDrop={handleDrop}
         className={`mt-4 flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
           isDragging
-            ? "border-indigo-500 bg-indigo-50"
-            : "border-slate-300 bg-slate-50 hover:border-indigo-400 hover:bg-indigo-50/50"
+            ? "border-primary-500 bg-primary-50"
+            : "border-slate-300 bg-slate-50 hover:border-primary-400 hover:bg-primary-50/50"
         }`}
       >
         {previewUrl ? (
@@ -101,13 +125,24 @@ export default function ImageUpload({ onAnalysisComplete }: ImageUploadProps) {
             <p className="text-xs text-slate-500">or click to browse — JPEG, PNG, WebP up to 10 MB</p>
           </>
         )}
-
-        {isUploading && (
-          <p className="mt-3 text-sm font-medium text-indigo-600" role="status">
-            Analyzing image…
-          </p>
-        )}
       </div>
+
+      {isUploading && (
+        <div className="mt-4" role="status" aria-live="polite">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium text-primary-700">{stage.label}</span>
+            <span className="text-xs text-slate-400">
+              step {stageIndex + 1} of {PROGRESS_STAGES.length}
+            </span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-primary-500 transition-all duration-700 ease-out"
+              style={{ width: stage.width }}
+            />
+          </div>
+        </div>
+      )}
 
       <input
         ref={fileInputRef}

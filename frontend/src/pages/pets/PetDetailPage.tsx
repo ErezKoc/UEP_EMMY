@@ -205,10 +205,15 @@ export default function PetDetailPage() {
       <Card
         className="mt-6"
         title="Analysis history"
-        description="AI analyses linked to this pet will appear here (Member 4's history page is on the way)."
+        description={`AI analyses linked to ${pet.name}.`}
       >
-        <div className="mt-4">
-          <Link to="/analyze">
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link to={`/analysis/history?pet=${pet.id}`}>
+            <Button variant="secondary" size="sm">
+              View {pet.name}&apos;s analyses
+            </Button>
+          </Link>
+          <Link to={`/analyze?pet=${pet.id}`}>
             <Button variant="secondary" size="sm">
               Analyze a photo
             </Button>

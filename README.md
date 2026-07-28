@@ -67,9 +67,15 @@ the `primary-*` Tailwind classes, defined once in `src/index.css`.
 
 Backend work each member owns alongside their pages: Member 2 — `/v1/auth` +
 `/v1/users` (**done**); Member 3 — `/v1/animals` CRUD (**done**);
-Member 4 — `GET /v1/analysis` history endpoint; Member 5 — vet directory
-endpoint (posts/comments endpoints already exist). Keep `frontend/src/types/index.ts`
-in sync with backend schemas — it is the shared contract.
+Member 4 — `GET /v1/analysis` history endpoint (**done**); Member 5 — vet
+directory endpoint (posts/comments endpoints already exist). Keep
+`frontend/src/types/index.ts` in sync with backend schemas — it is the shared
+contract.
+
+**Member 5, the share-to-community handoff is ready for you:** the analysis
+result page navigates to `/community/new` with route state
+`{ prefill: PostPrefill }` (see `types/index.ts`) — a suggested title, content,
+`image_url`, and `analysis_id` to pre-fill the new-post form.
 
 ### Auth & session (Member 2 — done)
 
@@ -101,11 +107,11 @@ seeded automatically on first startup. No PostgreSQL handy? Set
 `DATABASE_URL=sqlite:///./uep_emmy.db` in `.env` for a throwaway local database.
 
 > **Schema changed (July 2026):** `users` gained `password_hash`, `bio`, and
-> `avatar_url` (auth); `animals` gained `birth_date` and `photo_url` (pets).
-> There are no migrations yet — if you have an older local database, delete it
-> (e.g. `uep_emmy.db`) and let the app recreate it.
-> Thumbnail crop columns are added automatically at startup, so this
-> feature does not require another database reset.
+> `avatar_url` (auth); `animals` gained `birth_date`, `photo_url`, and thumbnail
+> focus fields (pets); `ai_analysis_logs` gained `user_id` (history). There are
+> no Alembic migrations yet. Thumbnail crop columns and analysis ownership are
+> added automatically at startup without deleting existing data. Databases that
+> predate the auth or base pet-photo fields may still need to be recreated.
 
 API docs: <http://localhost:8000/docs>
 
@@ -120,7 +126,8 @@ API docs: <http://localhost:8000/docs>
 | `GET/POST /v1/animals`         | List / create the signed-in user's pets            |
 | `GET/PATCH/DELETE /v1/animals/{id}` | Pet detail / update / remove (owner only)     |
 | `POST /v1/animals/{id}/photo`  | Multipart pet-photo upload                         |
-| `POST /v1/analysis/upload`     | Multipart image upload → stored + mock AI analysis |
+| `POST /v1/analysis/upload`     | Multipart image upload → stored + mock AI analysis; optional `animal_id` links it to your pet (auth required for linking) |
+| `GET /v1/analysis`             | Your past analyses, newest first; `?animal_id=` filters by pet |
 | `GET /v1/posts`                | Recent community posts (newest first, paginated)   |
 | `POST /v1/posts`               | Create a post                                      |
 | `GET /v1/posts/{id}`           | Post with comments                                 |

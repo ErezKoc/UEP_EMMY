@@ -1,5 +1,6 @@
 from app.schemas.analysis import (
     AgeEstimate,
+    AnalysisHistoryItem,
     AnalysisResponse,
     AnalysisResult,
     BreedCandidate,
@@ -11,6 +12,7 @@ from app.schemas.user import PasswordChange, UserRead, UserUpdate
 
 __all__ = [
     "AgeEstimate",
+    "AnalysisHistoryItem",
     "AnalysisResponse",
     "AnalysisResult",
     "AnimalCreate",

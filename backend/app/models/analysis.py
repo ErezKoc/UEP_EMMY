@@ -19,6 +19,11 @@ class AIAnalysisLog(Base):
     __tablename__ = "ai_analysis_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    # Who ran the analysis. Nullable: anonymous uploads (e.g. the public
+    # dashboard demo) are stored but belong to nobody's history.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     # Nullable: an owner can analyze a photo before registering the animal.
     animal_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("animals.id", ondelete="SET NULL"), index=True

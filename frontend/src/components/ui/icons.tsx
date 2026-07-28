@@ -84,6 +84,24 @@ export function SearchIcon(props: IconProps) {
   );
 }
 
+export function HistoryIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l3 2" />
+    </IconBase>
+  );
+}
+
+export function ArrowLeftIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m15 18-6-6 6-6" />
+    </IconBase>
+  );
+}
+
 export function WrenchIcon(props: IconProps) {
   return (
     <IconBase {...props}>

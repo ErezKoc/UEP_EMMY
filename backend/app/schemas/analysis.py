@@ -1,8 +1,9 @@
 import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.animal import AgeCategory
+from app.schemas.animal import AnimalRead
 from app.schemas.common import UTCDateTime
 
 
@@ -39,3 +40,17 @@ class AnalysisResponse(BaseModel):
     image_url: str
     created_at: UTCDateTime
     result: AnalysisResult
+
+
+class AnalysisHistoryItem(BaseModel):
+    """One row of the signed-in user's analysis history (GET /v1/analysis)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    image_url: str
+    created_at: UTCDateTime
+    # Stored verbatim as JSON at upload time; validates back into the schema.
+    result: AnalysisResult
+    # The linked pet, if any (deleted pets leave analyses unlinked).
+    animal: AnimalRead | None
