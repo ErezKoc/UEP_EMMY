@@ -12,7 +12,7 @@ photos to estimate species, breed, and age.
 | Backend  | Python 3.11+, FastAPI, SQLAlchemy 2.0                                   |
 | Database | PostgreSQL (SQLite fallback for quick local demos)                      |
 | Storage  | Local filesystem service that mimics S3 (swap for boto3/S3 later)       |
-| AI       | Deterministic mock analyzer (swap for AWS Rekognition/SageMaker later)  |
+| AI       | ONNX Runtime with MLP classifiers (breed + age); mock fallback          |
 
 ## Repository layout
 
@@ -27,7 +27,7 @@ UEP_EMMY/
 │   │   ├── schemas/              # Pydantic request/response schemas
 │   │   ├── services/
 │   │   │   ├── storage.py        # StorageService ABC + LocalS3Storage
-│   │   │   └── ai.py             # ImageAnalysisService ABC + MockImageAnalysisService
+│   │   │   └── ai.py             # ImageAnalysisService ABC + ONNXImageAnalysisService
 │   │   └── api/v1/               # Routers: /v1/analysis, /v1/posts
 │   ├── requirements.txt
 │   └── .env.example
@@ -91,7 +91,32 @@ analysis belongs to the signed-in author.
 - Demo accounts (seeded): `demo.owner@uepemmy.com` and `demo.vet@uepemmy.com`,
   password `demo1234` for both.
 
-## Running the backend
+## Running with Docker (recommended)
+
+The quickest way to start both the backend and frontend together:
+
+```bash
+docker compose up --build
+```
+
+This builds and starts two containers:
+
+| Container | URL | Description |
+|-----------|-----|-------------|
+| **frontend** | <http://localhost:8080> | React app served by nginx; proxies API calls to the backend |
+| **backend** | <http://localhost:8000> | FastAPI + ONNX inference; API docs at <http://localhost:8000/docs> |
+
+Data (SQLite database + uploaded files) is stored in the `backend_db` Docker
+volume so it persists across container restarts. To reset everything:
+
+```bash
+docker compose down -v            # -v removes the data volume
+docker compose up --build
+```
+
+## Running locally (without Docker)
+
+### Backend
 
 ```bash
 cd backend
@@ -128,7 +153,7 @@ API docs: <http://localhost:8000/docs>
 | `GET/POST /v1/animals`         | List / create the signed-in user's pets            |
 | `GET/PATCH/DELETE /v1/animals/{id}` | Pet detail / update / remove (owner only)     |
 | `POST /v1/animals/{id}/photo`  | Multipart pet-photo upload                         |
-| `POST /v1/analysis/upload`     | Multipart image upload → stored + mock AI analysis; optional `animal_id` links it to your pet (auth required for linking) |
+| `POST /v1/analysis/upload`     | Multipart image upload → stored + ONNX AI analysis; optional `animal_id` links it to your pet (auth required for linking) |
 | `GET /v1/analysis`             | Your past analyses, newest first; `?animal_id=` filters by pet |
 | `GET /v1/posts`                | Paginated posts; supports `q` and `author_role`    |
 | `POST /v1/posts`               | Create a signed-in user's post; optional analysis  |
@@ -137,7 +162,7 @@ API docs: <http://localhost:8000/docs>
 | `GET /v1/vets`                 | Public veterinarian directory; supports `q`        |
 | `GET /healthz`                 | Health check                                       |
 
-## Running the frontend
+### Frontend
 
 ```bash
 cd frontend
@@ -148,7 +173,28 @@ npm run dev                       # http://localhost:5173
 The Vite dev server proxies `/v1` and `/media` to `http://localhost:8000`, so run
 the backend first.
 
-## Swapping the mocks for AWS
+## AI models (ONNX)
+
+The platform ships with two self-contained ONNX classifiers in `backend/`:
+
+| Model file | Input | Output | Labels |
+|------------|-------|--------|--------|
+| `pet_breed_model.onnx` | `[1, 3, 224, 224]` RGB image | 37-class logits | 37 breeds (12 cat + 25 dog) |
+| `pet_age_model.onnx` | `[1, 3, 224, 224]` RGB image | 3-class logits | Puppy/Kitten, Adult, Senior |
+
+On startup the backend loads both models via ONNX Runtime (`ONNXImageAnalysisService`).
+If the `.onnx` files are missing or fail to load, it falls back to a deterministic
+mock analyzer (`MockImageAnalysisService`).
+
+To regenerate the models (requires `onnx`, `numpy`, and `onnxruntime` — all in
+`requirements.txt`):
+
+```bash
+cd backend
+python generate_real_onnx_models.py
+```
+
+## Swapping services for AWS
 
 - **Storage** — implement `StorageService` (`backend/app/services/storage.py`) with
   boto3 and return it from `get_storage_service()`. Keys are already generated in

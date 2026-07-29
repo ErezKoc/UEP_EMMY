@@ -1,6 +1,8 @@
 __pycache__
 .venv
 .env
+.env.example
 uep_emmy.db
+storage
 uploads
 *.pyc
