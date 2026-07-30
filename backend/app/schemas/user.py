@@ -2,7 +2,7 @@ import uuid
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.user import UserRole
+from app.models.user import UserRole, VerificationStatus
 from app.schemas.common import UTCDateTime
 
 
@@ -17,6 +17,9 @@ class UserRead(BaseModel):
     avatar_url: str | None = None
     clinic_name: str | None = None
     license_number: str | None = None
+    verification_status: VerificationStatus
+    # Convenience flag so clients never re-derive "vet AND verified".
+    is_verified_vet: bool
     created_at: UTCDateTime
 
 
@@ -32,6 +35,8 @@ class VeterinarianRead(BaseModel):
     avatar_url: str | None = None
     clinic_name: str | None = None
     license_number: str | None = None
+    verification_status: VerificationStatus
+    is_verified_vet: bool
 
 
 class UserUpdate(BaseModel):

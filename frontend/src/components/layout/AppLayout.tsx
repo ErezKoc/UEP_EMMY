@@ -73,6 +73,16 @@ function UserMenu() {
           <Link to="/settings" role="menuitem" className={itemClasses} onClick={() => setOpen(false)}>
             Settings
           </Link>
+          {user.role === "admin" && (
+            <Link
+              to="/admin/verifications"
+              role="menuitem"
+              className={itemClasses}
+              onClick={() => setOpen(false)}
+            >
+              Vet verification queue
+            </Link>
+          )}
           <button role="menuitem" onClick={handleLogout} className={`${itemClasses} text-rose-600`}>
             Sign out
           </button>

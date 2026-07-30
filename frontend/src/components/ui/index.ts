@@ -5,6 +5,7 @@ export { default as Card } from "./Card";
 export { default as EmptyState } from "./EmptyState";
 export { Input, Select, Textarea } from "./Field";
 export { default as Modal } from "./Modal";
+export { default as RoleBadge } from "./RoleBadge";
 export { default as Spinner } from "./Spinner";
 export { ToastProvider, useToast } from "./toast";
 export * from "./icons";

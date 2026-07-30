@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { ApiError, getVeterinarians } from "../../api/client";
-import { Avatar, Badge, Button, EmptyState, SearchIcon, Spinner, StethoscopeIcon } from "../../components/ui";
+import { Avatar, Button, EmptyState, RoleBadge, SearchIcon, Spinner, StethoscopeIcon } from "../../components/ui";
 import type { Veterinarian } from "../../types";
 
 export default function VetsPage() {
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [vets, setVets] = useState<Veterinarian[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -15,13 +16,13 @@ export default function VetsPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      setVets(await getVeterinarians(query));
+      setVets(await getVeterinarians(query, verifiedOnly));
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : "Could not load veterinarians.");
     } finally {
       setIsLoading(false);
     }
-  }, [query]);
+  }, [query, verifiedOnly]);
 
   useEffect(() => {
     void loadVets();
@@ -55,6 +56,16 @@ export default function VetsPage() {
         <Button type="submit" variant="secondary">Search</Button>
       </form>
 
+      <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-600">
+        <input
+          type="checkbox"
+          checked={verifiedOnly}
+          onChange={(event) => setVerifiedOnly(event.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+        />
+        Verified veterinarians only
+      </label>
+
       <div className="mt-6">
         {isLoading && <div className="flex justify-center py-16"><Spinner /></div>}
         {!isLoading && loadError && (
@@ -79,7 +90,7 @@ export default function VetsPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="font-semibold text-slate-800">{vet.display_name}</h2>
-                      <Badge variant="vet">Veterinarian</Badge>
+                      <RoleBadge user={vet} />
                     </div>
                     <p className="mt-1 text-sm font-medium text-slate-600">{vet.clinic_name ?? "Independent veterinarian"}</p>
                     {vet.license_number && <p className="mt-1 text-xs text-slate-400">License {vet.license_number}</p>}

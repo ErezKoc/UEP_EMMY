@@ -2,8 +2,9 @@ import { useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { ApiError, updateProfile, uploadAvatar } from "../../api/client";
 import { useSession } from "../../auth/SessionContext";
-import { Avatar, Badge, Button, Card, CameraIcon, Input, Textarea, useToast } from "../../components/ui";
+import { Avatar, Button, Card, CameraIcon, Input, RoleBadge, Textarea, useToast } from "../../components/ui";
 import type { User } from "../../types";
+import VerificationCard from "./VerificationCard";
 
 const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
@@ -97,7 +98,7 @@ function ProfileContent({ user }: { user: User }) {
           <div className="text-center sm:text-left">
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <h1 className="text-xl font-bold text-slate-800">{user.display_name}</h1>
-              {isVet ? <Badge variant="vet">Veterinarian</Badge> : <Badge variant="primary">Pet Owner</Badge>}
+              <RoleBadge user={user} />
             </div>
             <p className="mt-1 text-sm text-slate-500">{user.email}</p>
             {isVet && user.clinic_name && (
@@ -141,7 +142,7 @@ function ProfileContent({ user }: { user: User }) {
                 label="License number"
                 value={licenseNumber}
                 onChange={(event) => setLicenseNumber(event.target.value)}
-                hint="Used later for professional verification."
+                hint="Required to request professional verification."
                 maxLength={64}
               />
             </>
@@ -160,6 +161,8 @@ function ProfileContent({ user }: { user: User }) {
           </div>
         </form>
       </Card>
+
+      {isVet && <VerificationCard user={user} />}
     </div>
   );
 }

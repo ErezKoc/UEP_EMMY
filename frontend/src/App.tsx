@@ -1,8 +1,10 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import RequireAdmin from "./auth/RequireAdmin";
 import RequireAuth from "./auth/RequireAuth";
 import { SessionProvider } from "./auth/SessionContext";
 import AppLayout from "./components/layout/AppLayout";
 import { ToastProvider } from "./components/ui/toast";
+import VerificationQueuePage from "./pages/admin/VerificationQueuePage";
 import Dashboard from "./pages/Dashboard";
 import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
@@ -29,6 +31,7 @@ import PetsPage from "./pages/pets/PetsPage";
  *   Member 3 — /pets /pets/:petId
  *   Member 4 — /analyze /analysis/history
  *   Member 5 — /community /community/new /community/:postId /vets
+ *   Shared    — /admin/verifications (vet credential review, admins only)
  */
 export default function App() {
   return (
@@ -104,6 +107,15 @@ export default function App() {
               />
               <Route path="/community/:postId" element={<PostDetailPage />} />
               <Route path="/vets" element={<VetsPage />} />
+
+              <Route
+                path="/admin/verifications"
+                element={
+                  <RequireAdmin>
+                    <VerificationQueuePage />
+                  </RequireAdmin>
+                }
+              />
 
               <Route path="*" element={<NotFound />} />
             </Route>

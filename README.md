@@ -88,8 +88,47 @@ analysis belongs to the signed-in author.
   `current_user: User = Depends(get_current_user)` from `app/api/deps.py`
   (or `get_optional_user` where anonymous access is allowed). The frontend
   client sends the `Authorization: Bearer` header automatically.
-- Demo accounts (seeded): `demo.owner@uepemmy.com` and `demo.vet@uepemmy.com`,
-  password `demo1234` for both.
+- Demo accounts (all seeded with password `demo1234`):
+
+  | Account | Role | Notes |
+  | ------- | ---- | ----- |
+  | `demo.owner@uepemmy.com` | Pet owner | Owns Buddy the Labrador |
+  | `demo.vet@uepemmy.com` | Veterinarian | Already verified — shows the badge |
+  | `demo.newvet@uepemmy.com` | Veterinarian | Unverified, for demoing the request flow |
+  | `admin@uepemmy.com` | Admin | Reviews licence documents |
+
+### Veterinarian verification
+
+Signing up as a veterinarian is only a claim; the teal **Verified vet** badge
+appears only after an administrator approves a licence document. Unverified
+veterinarian accounts get a plain "Veterinarian" badge instead — the whole point
+of the flow is that the badge means something.
+
+- A veterinarian submits proof from their own profile page
+  (`pages/auth/VerificationCard.tsx`), which needs a licence number on the
+  profile first. Statuses: `unverified → pending → verified | rejected`, and a
+  rejected vet can resubmit.
+- Administrators review at `/admin/verifications`
+  (`pages/admin/VerificationQueuePage.tsx`), approving or rejecting with a note
+  the veterinarian sees. The admin link appears in the account menu for admins.
+- **Approving is guarded, and reversible.** Granting the badge vouches for
+  someone to the whole community, so every decision goes through a confirmation
+  dialog naming the veterinarian and spelling out the consequence — a stray
+  click cannot verify anyone. Rejections and revocations additionally require a
+  written reason before the confirm button enables. If an approval was still
+  given by mistake, open the **Approved** filter and use **Revoke
+  verification**: the badge disappears everywhere immediately. Decisions record
+  which administrator made them (`reviewed_by`), shown on every decided card.
+- Only a veterinarian's **most recent** submission can be decided; an older,
+  superseded one returns 409 so the account status always matches the newest record.
+- Every submission is kept in `vet_verifications` as history; the decision is
+  mirrored onto `users.verification_status` so badges render without a join.
+- **Use `<RoleBadge user={...} />`** (`components/ui`) wherever an author is
+  labelled — it is the single place that decides verified vs. unverified vs. owner.
+  `UserRead` exposes `verification_status` and the convenience flag `is_verified_vet`.
+- The admin role can never be self-registered: `SignupRequest` accepts only
+  `owner` and `veterinarian`, and `ensure_admin_account()` creates the admin at
+  startup if the database has none.
 
 ## Running with Docker (recommended)
 
@@ -133,10 +172,12 @@ seeded automatically on first startup. No PostgreSQL handy? Set
 
 > **Schema changed (July 2026):** `users` gained `password_hash`, `bio`, and
 > `avatar_url` (auth); `animals` gained `birth_date`, `photo_url`, and thumbnail
-> focus fields (pets); `ai_analysis_logs` gained `user_id` (history); and `posts`
-> gained `analysis_id` plus `image_url` (community sharing). There are no Alembic
-> migrations yet. The newer thumbnail, analysis ownership, and post attachment
-> columns are added automatically at startup without deleting existing data.
+> focus fields (pets); `ai_analysis_logs` gained `user_id` (history); `posts`
+> gained `analysis_id` plus `image_url` (community sharing); and `users` gained
+> `verification_status` alongside the new `vet_verifications` table (vet
+> verification). There are no Alembic migrations yet. The newer thumbnail,
+> analysis ownership, post attachment, and verification columns are added
+> automatically at startup without deleting existing data.
 > Databases that predate the auth or base pet-photo fields may still need to be
 > recreated.
 
@@ -159,7 +200,11 @@ API docs: <http://localhost:8000/docs>
 | `POST /v1/posts`               | Create a signed-in user's post; optional analysis  |
 | `GET /v1/posts/{id}`           | Post with comments                                 |
 | `POST /v1/posts/{id}/comments` | Add a signed-in user's comment                     |
-| `GET /v1/vets`                 | Public veterinarian directory; supports `q`        |
+| `GET /v1/vets`                 | Public veterinarian directory; supports `q` and `verified_only`, verified listed first |
+| `POST /v1/verification`        | Vet submits a licence document → status `pending`  |
+| `GET /v1/verification/me`      | The caller's own submissions, newest first         |
+| `GET /v1/verification`         | Admin review queue; `?status=pending` filters      |
+| `PATCH /v1/verification/{id}`  | Admin approves (`verified`) or rejects/revokes with a note; re-deciding the latest submission reverses a mistake |
 | `GET /healthz`                 | Health check                                       |
 
 ### Frontend
@@ -212,7 +257,9 @@ python generate_real_onnx_models.py
   and HMAC-signed tokens, standard library only. Before any real deployment,
   swap for a vetted stack (passlib/bcrypt + JWT library, or Amazon Cognito) and
   set a real `SECRET_KEY` in `.env`.
-- Vet accounts are self-declared at signup; the license number is stored but not
-  verified. A verification flow (document upload + admin review) is planned.
+- Verification is a manual human review by design, and the licence document is
+  served from the same public `/media` mount as pet photos. Before a real
+  deployment, move these documents to private storage with presigned, expiring
+  URLs available to admins only.
 - Uploads are buffered in memory (bounded by `MAX_UPLOAD_MB`); stream to storage
   for larger files.

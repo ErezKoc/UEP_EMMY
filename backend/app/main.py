@@ -9,7 +9,7 @@ from sqlalchemy import inspect, text
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.base import Base
-from app.db.seed import seed_demo_data
+from app.db.seed import ensure_admin_account, seed_demo_data
 from app.db.session import SessionLocal, engine
 
 settings = get_settings()
@@ -39,6 +39,13 @@ def ensure_compatibility_columns() -> None:
         "analysis_id": "ALTER TABLE posts ADD COLUMN analysis_id CHAR(32)",
         "image_url": "ALTER TABLE posts ADD COLUMN image_url VARCHAR(1024)",
     }
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    user_additions = {
+        "verification_status": (
+            "ALTER TABLE users ADD COLUMN verification_status VARCHAR(10) "
+            "NOT NULL DEFAULT 'unverified'"
+        ),
+    }
     missing = [
         statement
         for name, statement in animal_additions.items()
@@ -53,6 +60,11 @@ def ensure_compatibility_columns() -> None:
         statement
         for name, statement in post_additions.items()
         if name not in post_columns
+    )
+    missing.extend(
+        statement
+        for name, statement in user_additions.items()
+        if name not in user_columns
     )
     with engine.begin() as connection:
         for statement in missing:
@@ -76,6 +88,9 @@ async def lifespan(app: FastAPI):
     ensure_compatibility_columns()
     with SessionLocal() as db:
         seed_demo_data(db)
+        # Runs on every boot: vet verification is unusable without an admin, and
+        # existing databases predate the admin role.
+        ensure_admin_account(db)
     yield
 
 

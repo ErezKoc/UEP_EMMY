@@ -4,10 +4,12 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { useSession } from "../../auth/SessionContext";
 import { Button, Card, Input, PawIcon, StethoscopeIcon } from "../../components/ui";
-import type { UserRole } from "../../types";
+import type { SignupPayload } from "../../types";
+
+type SignupRole = SignupPayload["role"];
 
 const ROLE_OPTIONS: Array<{
-  value: UserRole;
+  value: SignupRole;
   label: string;
   description: string;
   icon: typeof PawIcon;
@@ -30,7 +32,8 @@ export default function SignupPage() {
   const { user, signup } = useSession();
   const navigate = useNavigate();
 
-  const [role, setRole] = useState<UserRole>("owner");
+  // Admin accounts are never self-registered, so the picker is owner/vet only.
+  const [role, setRole] = useState<SignupRole>("owner");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

@@ -10,9 +10,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.models import AgeCategory, Animal, Comment, Post, User, UserRole
+from app.models import (
+    AgeCategory,
+    Animal,
+    Comment,
+    Post,
+    User,
+    UserRole,
+    VerificationStatus,
+)
 
-# Both demo accounts share this password (documented in the README).
+# All demo accounts share this password (documented in the README).
 DEMO_PASSWORD = "demo1234"
 
 
@@ -35,8 +43,21 @@ def seed_demo_data(db: Session) -> None:
         clinic_name="Riverside Veterinary Clinic",
         license_number="VET-2024-0042",
         bio="Small-animal veterinarian with 12 years of experience. Special interest in nutrition and preventive care.",
+        # Pre-verified so the demo shows the badge without a review round.
+        verification_status=VerificationStatus.VERIFIED,
     )
-    db.add_all([owner, vet])
+    # Second vet left unverified so the difference is visible in the demo, and
+    # so there is something to approve in the admin queue.
+    pending_vet = User(
+        email="demo.newvet@uepemmy.com",
+        password_hash=hash_password(DEMO_PASSWORD),
+        display_name="Dr. Deniz Aydın",
+        role=UserRole.VETERINARIAN,
+        clinic_name="Anatolia Animal Hospital",
+        license_number="VET-2026-0117",
+        bio="Newly joined veterinarian focusing on dermatology.",
+    )
+    db.add_all([owner, vet, pending_vet])
     db.flush()
 
     buddy = Animal(
@@ -80,6 +101,32 @@ def seed_demo_data(db: Session) -> None:
                 "guide. Stick close to the feeding table for his target weight and "
                 "use his body condition score, not his enthusiasm, to adjust."
             ),
+        )
+    )
+    db.commit()
+
+
+ADMIN_EMAIL = "admin@uepemmy.com"
+
+
+def ensure_admin_account(db: Session) -> None:
+    """Create the credential-review admin if the platform has none.
+
+    Unlike `seed_demo_data` this runs on every boot: veterinarian verification
+    needs a reviewer, and databases created before the admin role existed have
+    no way to get one otherwise.
+    """
+    existing = db.scalars(select(User).where(User.role == UserRole.ADMIN).limit(1)).first()
+    if existing is not None:
+        return
+
+    db.add(
+        User(
+            email=ADMIN_EMAIL,
+            password_hash=hash_password(DEMO_PASSWORD),
+            display_name="Platform Admin",
+            role=UserRole.ADMIN,
+            bio="Reviews veterinarian credentials.",
         )
     )
     db.commit()

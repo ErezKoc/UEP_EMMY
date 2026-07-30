@@ -5,6 +5,10 @@ import hostingConfig from "./.openai/hosting.json";
 
 const PLACEHOLDER_DATABASE_ID = "00000000-0000-4000-8000-000000000000";
 
+// Where `npm run dev` proxies /v1 and /media. Override when the backend runs on
+// another port, e.g. `set DEV_API_TARGET=http://127.0.0.1:8010` before npm run dev.
+const DEV_API_TARGET = process.env.DEV_API_TARGET ?? "http://127.0.0.1:8000";
+
 export default defineConfig(async ({ mode }) => {
   const plugins = [react(), tailwindcss()];
 
@@ -49,8 +53,8 @@ export default defineConfig(async ({ mode }) => {
           ? undefined
           : {
               // Keep the existing FastAPI development workflow unchanged.
-              "/v1": "http://127.0.0.1:8000",
-              "/media": "http://127.0.0.1:8000",
+              "/v1": DEV_API_TARGET,
+              "/media": DEV_API_TARGET,
             },
     },
   };

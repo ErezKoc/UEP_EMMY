@@ -1,8 +1,8 @@
-"""Shared FastAPI dependencies (currently: the authenticated user).
+"""Shared FastAPI dependencies (who is calling, and may they).
 
-Other members: add `current_user: User = Depends(get_current_user)` to any
-route that needs the signed-in user, or `Depends(get_optional_user)` where
-anonymous access is still allowed.
+Add `current_user: User = Depends(get_current_user)` to any route that needs the
+signed-in user, `Depends(get_optional_user)` where anonymous access is still
+allowed, or `Depends(get_current_admin)` for admin-only routes.
 """
 
 from fastapi import Depends, HTTPException, status
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import verify_token
 from app.db.session import get_db
-from app.models import User
+from app.models import User, UserRole
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -35,5 +35,15 @@ def get_current_user(user: User | None = Depends(get_optional_user)) -> User:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated.",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+def get_current_admin(user: User = Depends(get_current_user)) -> User:
+    """Admin-only routes (403 when signed in as a non-admin)."""
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access required.",
         )
     return user

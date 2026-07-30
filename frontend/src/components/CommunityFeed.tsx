@@ -3,28 +3,20 @@ import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, getPosts } from "../api/client";
 import { formatRelativeTime } from "../lib/format";
-import type { Post, UserRole } from "../types";
+import type { Post } from "../types";
 import {
   Avatar,
-  Badge,
   Button,
   ChatIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   EmptyState,
+  RoleBadge,
   SearchIcon,
   Spinner,
 } from "./ui";
 
 const PAGE_SIZE = 6;
-
-function RoleBadge({ role }: { role: UserRole }) {
-  return (
-    <Badge variant={role === "veterinarian" ? "vet" : "neutral"}>
-      {role === "veterinarian" ? "Veterinarian" : "Pet owner"}
-    </Badge>
-  );
-}
 
 function excerpt(content: string, compact: boolean): string {
   const maximum = compact ? 150 : 260;
@@ -42,7 +34,7 @@ function PostItem({ post, compact }: { post: Post; compact: boolean }) {
           <header className="flex flex-wrap items-center gap-2">
             <Avatar name={post.author.display_name} src={post.author.avatar_url} size="sm" />
             <span className="text-sm font-semibold text-slate-800">{post.author.display_name}</span>
-            <RoleBadge role={post.author.role} />
+            <RoleBadge user={post.author} />
             <time className="sm:ml-auto text-xs text-slate-400" dateTime={post.created_at}>
               {formatRelativeTime(post.created_at)}
             </time>
@@ -74,7 +66,9 @@ export default function CommunityFeed({ compact = false }: { compact?: boolean }
   const [searchParams, setSearchParams] = useSearchParams();
   const query = compact ? "" : searchParams.get("q") ?? "";
   const roleParam = compact ? "" : searchParams.get("role") ?? "";
-  const role: UserRole | "" = roleParam === "owner" || roleParam === "veterinarian" ? roleParam : "";
+  // Only these two roles author community content, so admin is not a filter option.
+  const role: "owner" | "veterinarian" | "" =
+    roleParam === "owner" || roleParam === "veterinarian" ? roleParam : "";
   const parsedPage = Number.parseInt(compact ? "1" : searchParams.get("page") ?? "1", 10);
   const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
   const limit = compact ? 4 : PAGE_SIZE;

@@ -10,7 +10,9 @@ import type {
   SignupPayload,
   User,
   UserRole,
+  VerificationStatus,
   Veterinarian,
+  VetVerification,
 } from "../types";
 
 // In development the Vite dev server proxies /v1 and /media to FastAPI
@@ -186,12 +188,52 @@ export function createComment(postId: string, content: string) {
   return requestJson<import("../types").Comment>(`/posts/${postId}/comments`, "POST", { content });
 }
 
-export async function getVeterinarians(q = ""): Promise<Veterinarian[]> {
+export async function getVeterinarians(q = "", verifiedOnly = false): Promise<Veterinarian[]> {
   const params = new URLSearchParams();
   if (q.trim()) params.set("q", q.trim());
+  if (verifiedOnly) params.set("verified_only", "true");
   const suffix = params.size > 0 ? `?${params}` : "";
   const response = await fetch(`${API_BASE}/vets${suffix}`);
   return parseResponse<Veterinarian[]>(response);
+}
+
+// ------------------------------------------------- veterinarian verification
+
+/** Submit (or resubmit) licence proof for admin review. */
+export async function submitVerification(file: File): Promise<VetVerification> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/verification`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+  return parseResponse<VetVerification>(response);
+}
+
+/** The caller's own submissions, newest first. */
+export async function getMyVerifications(): Promise<VetVerification[]> {
+  const response = await fetch(`${API_BASE}/verification/me`, { headers: authHeaders() });
+  return parseResponse<VetVerification[]>(response);
+}
+
+/** Admin review queue, oldest first; pass a status to filter. */
+export async function getVerifications(status?: VerificationStatus): Promise<VetVerification[]> {
+  const suffix = status ? `?status=${status}` : "";
+  const response = await fetch(`${API_BASE}/verification${suffix}`, { headers: authHeaders() });
+  return parseResponse<VetVerification[]>(response);
+}
+
+/** Admin decision: approve or reject a pending submission. */
+export function decideVerification(
+  verificationId: string,
+  status: Extract<VerificationStatus, "verified" | "rejected">,
+  reviewNote?: string,
+): Promise<VetVerification> {
+  return requestJson<VetVerification>(`/verification/${verificationId}`, "PATCH", {
+    status,
+    review_note: reviewNote?.trim() || null,
+  });
 }
 
 // ----------------------------------------------------------------- analysis

@@ -1,7 +1,9 @@
 // TypeScript mirrors of the backend Pydantic schemas (backend/app/schemas).
 // Field names are snake_case to match the JSON payloads exactly.
 
-export type UserRole = "owner" | "veterinarian";
+export type UserRole = "owner" | "veterinarian" | "admin";
+
+export type VerificationStatus = "unverified" | "pending" | "verified" | "rejected";
 
 export type AgeCategory = "baby" | "young" | "adult" | "senior" | "unknown";
 
@@ -14,6 +16,9 @@ export interface User {
   avatar_url: string | null;
   clinic_name: string | null;
   license_number: string | null;
+  verification_status: VerificationStatus;
+  /** True only for veterinarians an admin approved. Drives the trusted badge. */
+  is_verified_vet: boolean;
   created_at: string;
 }
 
@@ -21,9 +26,23 @@ export interface SignupPayload {
   email: string;
   password: string;
   display_name: string;
-  role: UserRole;
+  // Admin accounts are never self-registered (backend rejects the value).
+  role: Exclude<UserRole, "admin">;
   clinic_name?: string;
   license_number?: string;
+}
+
+export interface VetVerification {
+  id: string;
+  status: VerificationStatus;
+  document_url: string;
+  license_number: string | null;
+  review_note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  /** Which administrator decided this — decisions are attributable. */
+  reviewed_by_name: string | null;
+  user: Veterinarian;
 }
 
 export interface ProfileUpdatePayload {
@@ -132,6 +151,8 @@ export interface Veterinarian {
   avatar_url: string | null;
   clinic_name: string | null;
   license_number: string | null;
+  verification_status: VerificationStatus;
+  is_verified_vet: boolean;
 }
 
 export interface Comment {

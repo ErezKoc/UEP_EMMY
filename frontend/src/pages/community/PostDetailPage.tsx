@@ -6,24 +6,16 @@ import { useSession } from "../../auth/SessionContext";
 import {
   ArrowLeftIcon,
   Avatar,
-  Badge,
   Button,
   ChatIcon,
+  RoleBadge,
   SendIcon,
   Spinner,
   Textarea,
   useToast,
 } from "../../components/ui";
 import { formatRelativeTime } from "../../lib/format";
-import type { PostDetail, UserRole } from "../../types";
-
-function RoleBadge({ role }: { role: UserRole }) {
-  return (
-    <Badge variant={role === "veterinarian" ? "vet" : "neutral"}>
-      {role === "veterinarian" ? "Veterinarian" : "Pet owner"}
-    </Badge>
-  );
-}
+import type { PostDetail } from "../../types";
 
 export default function PostDetailPage() {
   const { postId } = useParams();
@@ -92,7 +84,7 @@ export default function PostDetailPage() {
                 <p className="text-sm font-semibold text-slate-800">{post.author.display_name}</p>
                 <time className="text-xs text-slate-400" dateTime={post.created_at}>{formatRelativeTime(post.created_at)}</time>
               </div>
-              <RoleBadge role={post.author.role} />
+              <RoleBadge user={post.author} />
             </header>
             <h1 className="mt-5 text-2xl font-bold text-slate-800">{post.title}</h1>
             <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{post.content}</p>
@@ -116,7 +108,7 @@ export default function PostDetailPage() {
                   <header className="flex flex-wrap items-center gap-2">
                     <Avatar name={item.author.display_name} src={item.author.avatar_url} size="sm" />
                     <span className="text-sm font-semibold text-slate-800">{item.author.display_name}</span>
-                    <RoleBadge role={item.author.role} />
+                    <RoleBadge user={item.author} />
                     <time className="sm:ml-auto text-xs text-slate-400" dateTime={item.created_at}>{formatRelativeTime(item.created_at)}</time>
                   </header>
                   <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-slate-700">{item.content}</p>
