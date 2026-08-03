@@ -23,6 +23,7 @@ class AnimalCreate(_BirthDateValidatorMixin):
     species: str = Field(min_length=1, max_length=80)
     breed: str | None = Field(default=None, max_length=120)
     birth_date: date | None = None
+    age_category: AgeCategory | None = None
 
 
 class AnimalUpdate(_BirthDateValidatorMixin):
@@ -32,6 +33,7 @@ class AnimalUpdate(_BirthDateValidatorMixin):
     species: str | None = Field(default=None, min_length=1, max_length=80)
     breed: str | None = Field(default=None, max_length=120)
     birth_date: date | None = None
+    age_category: AgeCategory | None = None
     photo_position_x: int = Field(default=50, ge=0, le=100)
     photo_position_y: int = Field(default=50, ge=0, le=100)
     photo_zoom: float = Field(default=1.0, ge=1.0, le=3.0)

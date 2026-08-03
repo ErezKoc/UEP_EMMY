@@ -78,6 +78,7 @@ export interface AnimalPayload {
   species: string;
   breed?: string | null;
   birth_date?: string | null;
+  age_category?: AgeCategory | null;
   photo_position_x?: number;
   photo_position_y?: number;
   photo_zoom?: number;

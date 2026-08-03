@@ -196,7 +196,13 @@ export default function PetDetailPage() {
               label="Birth date"
               value={pet.birth_date ? formatDate(pet.birth_date) : "Unknown"}
             />
-            {pet.birth_date && <InfoRow label="Age" value={formatAge(pet.birth_date)} />}
+            {pet.birth_date ? (
+              <InfoRow label="Age" value={formatAge(pet.birth_date)} />
+            ) : (
+              pet.age_category && pet.age_category !== "unknown" && (
+                <InfoRow label="Age Category" value={capitalize(pet.age_category)} />
+              )
+            )}
             <InfoRow label="Added on" value={formatDate(pet.created_at.slice(0, 10))} />
           </dl>
         </div>
