@@ -20,6 +20,7 @@ import PostDetailPage from "./pages/community/PostDetailPage";
 import VetsPage from "./pages/community/VetsPage";
 import PetDetailPage from "./pages/pets/PetDetailPage";
 import PetsPage from "./pages/pets/PetsPage";
+import CalendarPage from "./pages/reminders/CalendarPage";
 
 /*
  * Route registry — one route per page, stub pages included, so every member's
@@ -75,6 +76,15 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <PetDetailPage />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
+                path="/calendar"
+                element={
+                  <RequireAuth>
+                    <CalendarPage />
                   </RequireAuth>
                 }
               />

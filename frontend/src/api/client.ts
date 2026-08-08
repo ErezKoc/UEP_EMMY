@@ -7,6 +7,8 @@ import type {
   Post,
   PostDetail,
   ProfileUpdatePayload,
+  Reminder,
+  ReminderPayload,
   SignupPayload,
   User,
   UserRole,
@@ -139,6 +141,26 @@ export function updateAnimal(animalId: string, payload: Partial<AnimalPayload>):
 
 export function deleteAnimal(animalId: string): Promise<void> {
   return requestJson<void>(`/animals/${animalId}`, "DELETE");
+}
+
+// --------------------------------------------------------------- reminders
+
+export async function getReminders(animalId?: string): Promise<Reminder[]> {
+  const suffix = animalId ? `?animal_id=${encodeURIComponent(animalId)}` : "";
+  const response = await fetch(`${API_BASE}/reminders${suffix}`, { headers: authHeaders() });
+  return parseResponse<Reminder[]>(response);
+}
+
+export function createReminder(payload: ReminderPayload): Promise<Reminder> {
+  return requestJson<Reminder>("/reminders", "POST", payload);
+}
+
+export function updateReminder(id: string, payload: Partial<ReminderPayload>): Promise<Reminder> {
+  return requestJson<Reminder>(`/reminders/${id}`, "PATCH", payload);
+}
+
+export function deleteReminder(id: string): Promise<void> {
+  return requestJson<void>(`/reminders/${id}`, "DELETE");
 }
 
 export async function uploadAnimalPhoto(animalId: string, file: File): Promise<Animal> {

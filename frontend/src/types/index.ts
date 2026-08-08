@@ -84,6 +84,31 @@ export interface AnimalPayload {
   photo_zoom?: number;
 }
 
+export type ReminderType = "vaccine" | "checkup" | "other";
+export type ReminderRecurrence = "none" | "monthly" | "yearly";
+
+export interface Reminder {
+  id: string;
+  title: string;
+  reminder_type: ReminderType;
+  due_date: string;
+  recurrence: ReminderRecurrence;
+  notes: string | null;
+  animal_id: string;
+  owner_id: string;
+  created_at: string;
+  animal: Animal;
+}
+
+export interface ReminderPayload {
+  title: string;
+  reminder_type: ReminderType;
+  due_date: string;
+  recurrence: ReminderRecurrence;
+  notes?: string | null;
+  animal_id: string;
+}
+
 export interface BreedCandidate {
   breed: string;
   confidence: number;
