@@ -6,6 +6,7 @@ import ImageUpload from "../../components/ImageUpload";
 import { Button, Card, HistoryIcon, Select, useToast } from "../../components/ui";
 import { capitalize, formatPercent } from "../../lib/format";
 import type { AnalysisResponse, Animal, PostPrefill } from "../../types";
+import ProductRecommendationSection from "../../features/recommendations/components/ProductRecommendationSection";
 
 const NO_PET = "";
 
@@ -139,6 +140,8 @@ export default function AnalyzePage() {
       ) : (
         <>
           <AnalysisCard analysis={analysis} />
+
+          <ProductRecommendationSection analysis={analysis} />
 
           <Card>
             <div className="flex flex-wrap items-center justify-between gap-3">
