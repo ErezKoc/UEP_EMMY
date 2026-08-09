@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, EmailStr, Field
 
 from app.models.user import UserRole
-from app.schemas.user import UserRead
+from app.schemas.user import CurrentUserRead
 
 
 class SignupRequest(BaseModel):
@@ -24,4 +24,4 @@ class LoginRequest(BaseModel):
 
 class AuthResponse(BaseModel):
     token: str
-    user: UserRead
+    user: CurrentUserRead

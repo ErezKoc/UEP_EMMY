@@ -21,6 +21,19 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
 
 
+class AccountStatus(str, enum.Enum):
+    """Moderation state of an account, set by an administrator via a report.
+
+    `SUSPENDED` is temporary (see `User.suspended_until`) and lapses on its own;
+    `BANNED` is indefinite and also blocks signing in. Both are reversible by
+    reinstating the account.
+    """
+
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    BANNED = "banned"
+
+
 class VerificationStatus(str, enum.Enum):
     """Credential state of a veterinarian account (meaningless for owners).
 
@@ -64,6 +77,15 @@ class User(Base):
         default=VerificationStatus.UNVERIFIED,
         index=True,
     )
+    account_status: Mapped[AccountStatus] = mapped_column(
+        Enum(AccountStatus, native_enum=False, values_callable=lambda e: [m.value for m in e]),
+        default=AccountStatus.ACTIVE,
+        index=True,
+    )
+    # When a suspension lapses. NULL alongside SUSPENDED means indefinite.
+    suspended_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Shown to the member themselves so a suspension is never unexplained.
+    moderation_note: Mapped[str | None] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -84,3 +106,25 @@ class User(Base):
             self.role == UserRole.VETERINARIAN
             and self.verification_status == VerificationStatus.VERIFIED
         )
+
+    @property
+    def is_banned(self) -> bool:
+        return self.account_status == AccountStatus.BANNED
+
+    @property
+    def is_suspended(self) -> bool:
+        """True only while a suspension is still running (it lapses on its own)."""
+        if self.account_status != AccountStatus.SUSPENDED:
+            return False
+        if self.suspended_until is None:
+            return True
+        # SQLite drops tzinfo on round-trip, so normalise before comparing.
+        until = self.suspended_until
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        return until > datetime.now(timezone.utc)
+
+    @property
+    def can_participate(self) -> bool:
+        """May this account write posts, comments, and reports right now?"""
+        return not self.is_banned and not self.is_suspended

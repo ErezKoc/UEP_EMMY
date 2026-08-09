@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { ApiError, getVeterinarians } from "../../api/client";
+import ReportButton from "../../components/ReportButton";
 import { Avatar, Button, EmptyState, RoleBadge, SearchIcon, Spinner, StethoscopeIcon } from "../../components/ui";
 import type { Veterinarian } from "../../types";
 
@@ -97,6 +98,13 @@ export default function VetsPage() {
                   </div>
                 </div>
                 {vet.bio && <p className="mt-4 text-sm leading-relaxed text-slate-600">{vet.bio}</p>}
+                <div className="mt-3 flex justify-end">
+                  <ReportButton
+                    authorId={vet.id}
+                    target={{ type: "user", id: vet.id, authorName: vet.display_name }}
+                    label="Report profile"
+                  />
+                </div>
               </li>
             ))}
           </ul>

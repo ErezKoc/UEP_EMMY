@@ -3,7 +3,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { ApiError, updateProfile, uploadAvatar } from "../../api/client";
 import { useSession } from "../../auth/SessionContext";
 import { Avatar, Button, Card, CameraIcon, Input, RoleBadge, Textarea, useToast } from "../../components/ui";
-import type { User } from "../../types";
+import type { CurrentUser } from "../../types";
 import VerificationCard from "./VerificationCard";
 
 const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -16,7 +16,7 @@ export default function ProfilePage() {
   return <ProfileContent user={user} />;
 }
 
-function ProfileContent({ user }: { user: User }) {
+function ProfileContent({ user }: { user: CurrentUser }) {
   const { setUser } = useSession();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);

@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, suspension_message
 from app.core.security import create_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models import User, UserRole
-from app.schemas import AuthResponse, LoginRequest, SignupRequest, UserRead
+from app.schemas import AuthResponse, CurrentUserRead, LoginRequest, SignupRequest
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> AuthRespons
     db.commit()
     db.refresh(user)
 
-    return AuthResponse(token=create_token(user.id), user=UserRead.model_validate(user))
+    return AuthResponse(token=create_token(user.id), user=CurrentUserRead.model_validate(user))
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -52,10 +52,14 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password.",
         )
-    return AuthResponse(token=create_token(user.id), user=UserRead.model_validate(user))
+    # A ban ends access entirely; a suspension still allows signing in so the
+    # member can read the reason and wait it out.
+    if user.is_banned:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=suspension_message(user))
+    return AuthResponse(token=create_token(user.id), user=CurrentUserRead.model_validate(user))
 
 
-@router.get("/me", response_model=UserRead)
+@router.get("/me", response_model=CurrentUserRead)
 def me(current_user: User = Depends(get_current_user)) -> User:
     """Return the user for the presented token (used to restore sessions)."""
     return current_user

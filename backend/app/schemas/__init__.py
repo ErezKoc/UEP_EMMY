@@ -7,9 +7,18 @@ from app.schemas.analysis import (
 )
 from app.schemas.animal import AnimalCreate, AnimalRead, AnimalUpdate
 from app.schemas.auth import AuthResponse, LoginRequest, SignupRequest
+from app.schemas.moderation import ReportCreate, ReportDecision, ReportRead
 from app.schemas.post import CommentCreate, CommentRead, PostCreate, PostDetail, PostRead
 from app.schemas.reminder import ReminderCreate, ReminderRead, ReminderUpdate
-from app.schemas.user import PasswordChange, UserRead, UserUpdate, VeterinarianRead
+from app.schemas.user import (
+    CurrentUserRead,
+    PasswordChange,
+    ReportedUserRead,
+    UserRead,
+    UserSummary,
+    UserUpdate,
+    VeterinarianRead,
+)
 from app.schemas.verification import VerificationDecision, VetVerificationRead
 
 __all__ = [
@@ -24,6 +33,7 @@ __all__ = [
     "BreedCandidate",
     "CommentCreate",
     "CommentRead",
+    "CurrentUserRead",
     "LoginRequest",
     "PasswordChange",
     "PostCreate",
@@ -32,8 +42,13 @@ __all__ = [
     "ReminderCreate",
     "ReminderRead",
     "ReminderUpdate",
+    "ReportCreate",
+    "ReportDecision",
+    "ReportRead",
+    "ReportedUserRead",
     "SignupRequest",
     "UserRead",
+    "UserSummary",
     "UserUpdate",
     "VerificationDecision",
     "VetVerificationRead",

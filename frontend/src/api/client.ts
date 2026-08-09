@@ -4,13 +4,16 @@ import type {
   Animal,
   AnimalPayload,
   AuthResponse,
+  CurrentUser,
   Post,
   PostDetail,
   ProfileUpdatePayload,
   Reminder,
   ReminderPayload,
+  ReportPayload,
+  ReportStatus,
   SignupPayload,
-  User,
+  UserReport,
   UserRole,
   VerificationStatus,
   Veterinarian,
@@ -92,13 +95,13 @@ export function login(email: string, password: string): Promise<AuthResponse> {
 }
 
 /** Restore the session for the stored token (401 → token invalid/expired). */
-export async function fetchCurrentUser(): Promise<User> {
+export async function fetchCurrentUser(): Promise<CurrentUser> {
   const response = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
-  return parseResponse<User>(response);
+  return parseResponse<CurrentUser>(response);
 }
 
-export function updateProfile(payload: ProfileUpdatePayload): Promise<User> {
-  return requestJson<User>("/users/me", "PATCH", payload);
+export function updateProfile(payload: ProfileUpdatePayload): Promise<CurrentUser> {
+  return requestJson<CurrentUser>("/users/me", "PATCH", payload);
 }
 
 export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
@@ -108,7 +111,7 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   });
 }
 
-export async function uploadAvatar(file: File): Promise<User> {
+export async function uploadAvatar(file: File): Promise<CurrentUser> {
   const formData = new FormData();
   formData.append("file", file);
   const response = await fetch(`${API_BASE}/users/me/avatar`, {
@@ -116,7 +119,7 @@ export async function uploadAvatar(file: File): Promise<User> {
     headers: authHeaders(),
     body: formData,
   });
-  return parseResponse<User>(response);
+  return parseResponse<CurrentUser>(response);
 }
 
 // --------------------------------------------------------------------- pets
@@ -255,6 +258,49 @@ export function decideVerification(
   return requestJson<VetVerification>(`/verification/${verificationId}`, "PATCH", {
     status,
     review_note: reviewNote?.trim() || null,
+  });
+}
+
+// ------------------------------------------------- reporting & moderation
+
+/** Report a post, comment, or profile for administrator review. */
+export function createReport(payload: ReportPayload): Promise<UserReport> {
+  return requestJson<UserReport>("/reports", "POST", payload);
+}
+
+/** Reports the signed-in user has filed, newest first. */
+export async function getMyReports(): Promise<UserReport[]> {
+  const response = await fetch(`${API_BASE}/reports/me`, { headers: authHeaders() });
+  return parseResponse<UserReport[]>(response);
+}
+
+/** Admin moderation queue, oldest first; pass a status to filter. */
+export async function getReports(status?: ReportStatus): Promise<UserReport[]> {
+  const suffix = status ? `?status=${status}` : "";
+  const response = await fetch(`${API_BASE}/reports${suffix}`, { headers: authHeaders() });
+  return parseResponse<UserReport[]>(response);
+}
+
+export interface ReportDecisionPayload {
+  /** "Reviewed, nothing wrong here" — mutually exclusive with `action`. */
+  dismiss?: boolean;
+  action?: import("../types").ModerationAction;
+  /** Required for `suspend`: how long the restriction lasts. */
+  suspend_days?: number;
+  /** Required for every action; optional when dismissing. */
+  review_note?: string;
+}
+
+/** Admin decision: dismiss the report, or suspend/ban/reinstate the account. */
+export function decideReport(
+  reportId: string,
+  payload: ReportDecisionPayload,
+): Promise<UserReport> {
+  return requestJson<UserReport>(`/reports/${reportId}`, "PATCH", {
+    dismiss: payload.dismiss ?? false,
+    action: payload.action ?? null,
+    suspend_days: payload.suspend_days ?? null,
+    review_note: payload.review_note?.trim() || null,
   });
 }
 

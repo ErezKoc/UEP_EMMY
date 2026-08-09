@@ -4,6 +4,7 @@ import { useSession } from "../../auth/SessionContext";
 import Avatar from "../ui/Avatar";
 import Button from "../ui/Button";
 import { MenuIcon, PawIcon } from "../ui/icons";
+import type { CurrentUser } from "../../types";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard" },
@@ -75,20 +76,52 @@ function UserMenu() {
             Settings
           </Link>
           {user.role === "admin" && (
-            <Link
-              to="/admin/verifications"
-              role="menuitem"
-              className={itemClasses}
-              onClick={() => setOpen(false)}
-            >
-              Vet verification queue
-            </Link>
+            <>
+              <Link
+                to="/admin/verifications"
+                role="menuitem"
+                className={itemClasses}
+                onClick={() => setOpen(false)}
+              >
+                Vet verification queue
+              </Link>
+              <Link
+                to="/admin/reports"
+                role="menuitem"
+                className={itemClasses}
+                onClick={() => setOpen(false)}
+              >
+                Reported content
+              </Link>
+            </>
           )}
           <button role="menuitem" onClick={handleLogout} className={`${itemClasses} text-rose-600`}>
             Sign out
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Explains an active suspension or ban to the account it applies to. */
+function RestrictionBanner({ user }: { user: CurrentUser }) {
+  const until = user.suspended_until ? new Date(user.suspended_until) : null;
+  return (
+    <div className="border-b border-amber-200 bg-amber-50" role="alert">
+      <div className="mx-auto max-w-6xl px-4 py-3 text-sm text-amber-900">
+        <p className="font-semibold">
+          {user.account_status === "banned"
+            ? "Your account has been banned."
+            : until
+              ? `Your account is suspended until ${until.toLocaleDateString()}.`
+              : "Your account is suspended."}
+        </p>
+        <p className="mt-0.5">
+          You can still browse, but posting, commenting, and reporting are turned off.
+          {user.moderation_note ? ` Moderator's note: ${user.moderation_note}` : ""}
+        </p>
+      </div>
     </div>
   );
 }
@@ -104,7 +137,7 @@ export default function AppLayout() {
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/dashboard" className="flex items-center gap-2">
             <PawIcon className="h-6 w-6 text-primary-600" />
             <span className="text-lg font-bold text-slate-800">UEP EMMY</span>
           </Link>
@@ -189,6 +222,8 @@ export default function AppLayout() {
           </nav>
         )}
       </header>
+
+      {user && !user.can_participate && <RestrictionBanner user={user} />}
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <Outlet />

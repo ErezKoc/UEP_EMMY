@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_user
+from app.api.deps import get_active_user
 from app.db.session import get_db
 from app.models import AIAnalysisLog, Comment, Post, User, UserRole
 from app.schemas import CommentCreate, CommentRead, PostCreate, PostDetail, PostRead
@@ -43,7 +43,7 @@ def list_posts(
 def create_post(
     payload: PostCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_active_user),
 ) -> Post:
     title = payload.title.strip()
     content = payload.content.strip()
@@ -95,7 +95,7 @@ def create_comment(
     post_id: uuid.UUID,
     payload: CommentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_active_user),
 ) -> Comment:
     if db.get(Post, post_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Post {post_id} not found.")

@@ -50,6 +50,12 @@ UEP_EMMY/
 lives in its owner's folder — replace the stub inside your page file; you should
 rarely need to touch `App.tsx`.
 
+`/` is the public promotional page **only for signed-out visitors**: with a valid
+session it redirects to `/dashboard`, and the navbar logo points at `/dashboard`
+too (signed-out visitors get bounced to `/login` and land there afterwards).
+`/dashboard` requires a session. `/community`, `/community/:postId` and `/vets`
+stay open to everyone so the social side can be browsed without an account.
+
 | Routes                                              | Owner    | Area |
 | --------------------------------------------------- | -------- | ---- |
 | `/`, `/dashboard`, `*` (404), shell, `components/ui` | Member 1 | Design system, layout, landing |
@@ -68,7 +74,8 @@ the `primary-*` Tailwind classes, defined once in `src/index.css`.
 Backend work each member owns alongside their pages: Member 2 — `/v1/auth` +
 `/v1/users` (**done**); Member 3 — `/v1/animals` CRUD (**done**);
 Member 4 — `GET /v1/analysis` history endpoint (**done**); Member 5 — community
-feed, posts/comments, and veterinarian directory (**done**). Keep
+feed, posts/comments, and veterinarian directory (**done**); shared — `/v1/reports`
+moderation (**done**). Keep
 `frontend/src/types/index.ts` in sync with backend schemas — it is the shared
 contract.
 
@@ -130,6 +137,47 @@ of the flow is that the badge means something.
   `owner` and `veterinarian`, and `ensure_admin_account()` creates the admin at
   startup if the database has none.
 
+### Community reporting & moderation
+
+Members report each other's content; administrators review it and can suspend or
+ban the account. The flow deliberately mirrors vet verification — same guarded
+dialogs, same attributable and reversible decisions.
+
+- **Reporting.** `<ReportButton target={...} authorId={...} />`
+  (`components/ReportButton.tsx`) is the single entry point, already placed on
+  posts and comments (`PostDetailPage`) and on profiles in the vet directory
+  (`VetsPage`). It renders nothing for signed-out visitors, on your own content,
+  or for admins. It opens `ReportDialog`, which collects a **reason checklist**
+  (offensive language, harassment, spam, pretending to be a vet, dangerous
+  medical advice, animal welfare, graphic content, something else) plus an
+  optional written explanation — required when "Something else" is ticked.
+- **The reported account is derived server-side** from the post/comment, so a
+  reporter cannot aim a report at someone who did not write it. Self-reports and
+  reports against admins are refused, and one reporter gets one *open* report per
+  target (a second returns 409) so the queue cannot be flooded.
+- **A snapshot of the reported text is stored with the report**, so the review
+  still makes sense if the author edits or deletes it afterwards — the same
+  reason verification keeps the licence number as submitted.
+- **Administrators review at `/admin/reports`**
+  (`pages/admin/ReportQueuePage.tsx`), which shows the checklist, the reporter's
+  explanation, the snapshot, a link to the discussion, and the account's current
+  moderation state. Four outcomes: **dismiss** (no penalty), **suspend** (choose
+  3/7/30/90 days), **ban** (indefinite), and **reinstate**.
+- **Penalties are guarded and reversible.** Suspending, banning, and reinstating
+  each go through a confirmation dialog and require a written reason before the
+  confirm button enables; `reviewed_by` records which administrator decided.
+- **What a penalty does:** suspended and banned members can still *read* the
+  platform, but posting, commenting, and reporting are refused with the reason.
+  A ban additionally blocks signing in. A suspension lapses on its own
+  (`User.is_suspended` checks `suspended_until`) — no job needed. Restricted
+  members see a banner in the layout explaining the restriction and the note.
+- `users` carries the current state (`account_status`, `suspended_until`,
+  `moderation_note`) while `user_reports` keeps the full history, exactly like
+  `verification_status` / `vet_verifications`.
+- The suspension deadline and moderator note are returned **only to the account
+  they concern** (`CurrentUserRead` via `/v1/auth/me`), never on a public author
+  profile.
+
 ## Running with Docker (recommended)
 
 The quickest way to start both the backend and frontend together:
@@ -166,18 +214,22 @@ cp .env.example .env              # then point DATABASE_URL at your PostgreSQL
 uvicorn app.main:app --reload --port 8000
 ```
 
-Tables are created and demo data (a pet owner, a veterinarian, sample posts) is
-seeded automatically on first startup. No PostgreSQL handy? Set
+Tables are created and demo data (a pet owner, two veterinarians, sample posts,
+and one pending report waiting in the moderation queue) is seeded automatically
+on first startup — but only into an *empty* database, so an existing volume will
+not gain the demo report. No PostgreSQL handy? Set
 `DATABASE_URL=sqlite:///./uep_emmy.db` in `.env` for a throwaway local database.
 
 > **Schema changed (July 2026):** `users` gained `password_hash`, `bio`, and
 > `avatar_url` (auth); `animals` gained `birth_date`, `photo_url`, and thumbnail
 > focus fields (pets); `ai_analysis_logs` gained `user_id` (history); `posts`
-> gained `analysis_id` plus `image_url` (community sharing); and `users` gained
+> gained `analysis_id` plus `image_url` (community sharing); `users` gained
 > `verification_status` alongside the new `vet_verifications` table (vet
-> verification). There are no Alembic migrations yet. The newer thumbnail,
-> analysis ownership, post attachment, and verification columns are added
-> automatically at startup without deleting existing data.
+> verification); and `users` gained `account_status`, `suspended_until` and
+> `moderation_note` alongside the new `user_reports` table (community
+> reporting). There are no Alembic migrations yet. The newer thumbnail,
+> analysis ownership, post attachment, verification, and moderation columns are
+> added automatically at startup without deleting existing data.
 > Databases that predate the auth or base pet-photo fields may still need to be
 > recreated.
 
@@ -205,6 +257,10 @@ API docs: <http://localhost:8000/docs>
 | `GET /v1/verification/me`      | The caller's own submissions, newest first         |
 | `GET /v1/verification`         | Admin review queue; `?status=pending` filters      |
 | `PATCH /v1/verification/{id}`  | Admin approves (`verified`) or rejects/revokes with a note; re-deciding the latest submission reverses a mistake |
+| `POST /v1/reports`             | Report a post, comment, or profile (reason checklist + optional explanation) |
+| `GET /v1/reports/me`           | Reports the caller has filed, newest first          |
+| `GET /v1/reports`              | Admin moderation queue; `?status=pending` filters   |
+| `PATCH /v1/reports/{id}`       | Admin dismisses, or suspends/bans/reinstates the reported account |
 | `GET /healthz`                 | Health check                                       |
 
 ### Frontend
@@ -257,6 +313,10 @@ python generate_real_onnx_models.py
   and HMAC-signed tokens, standard library only. Before any real deployment,
   swap for a vetted stack (passlib/bcrypt + JWT library, or Amazon Cognito) and
   set a real `SECRET_KEY` in `.env`.
+- Reports are reviewed entirely by hand: there is no rate limiting beyond the
+  one-open-report-per-target rule, no automated filtering, and content from a
+  banned member stays visible in the feed (the account is stopped, its history
+  is not purged).
 - Verification is a manual human review by design, and the licence document is
   served from the same public `/media` mount as pet photos. Before a real
   deployment, move these documents to private storage with presigned, expiring

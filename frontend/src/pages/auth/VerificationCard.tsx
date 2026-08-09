@@ -12,7 +12,7 @@ import {
   useToast,
 } from "../../components/ui";
 import { formatRelativeTime } from "../../lib/format";
-import type { User, VetVerification } from "../../types";
+import type { CurrentUser, VetVerification } from "../../types";
 
 const DOCUMENT_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_DOCUMENT_MB = 10;
@@ -23,7 +23,7 @@ const MAX_DOCUMENT_MB = 10;
  * Shown only to veterinarians: submit proof of licence, watch the review state,
  * read the reviewer's note, and resubmit after a rejection.
  */
-export default function VerificationCard({ user }: { user: User }) {
+export default function VerificationCard({ user }: { user: CurrentUser }) {
   const { setUser } = useSession();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
