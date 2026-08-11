@@ -20,7 +20,7 @@ export default function VoiceAssistantBubble() {
     {
       id: "welcome",
       sender: "assistant",
-      text: "Hi! I'm Emmy, your voice & command assistant. Try saying 'create me a calendar event for Jan 6 at 12:30' or 'take me to my pets'.",
+      text: "Hi! I'm Emmy, your voice & command assistant. Speak or type commands like 'create me a calendar event for Jan 6 at 12:30' or 'take me to my pets'.",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -29,9 +29,17 @@ export default function VoiceAssistantBubble() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
 
+  // Ref hooks to prevent stale closure values in async event callbacks
+  const inputTextRef = useRef(inputText);
+  const liveTranscriptRef = useRef("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recognitionRef = useRef<any>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    inputTextRef.current = inputText;
+  }, [inputText]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -43,7 +51,7 @@ export default function VoiceAssistantBubble() {
   // Speech synthesis helper
   const speakText = (text: string) => {
     if (!ttsEnabled || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel(); // Stop any active speech
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
@@ -57,7 +65,6 @@ export default function VoiceAssistantBubble() {
   ) => {
     const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-    // Add user message if not already added
     if (userText) {
       setMessages((prev) => [
         ...prev,
@@ -70,7 +77,6 @@ export default function VoiceAssistantBubble() {
       ]);
     }
 
-    // Add assistant response
     setMessages((prev) => [
       ...prev,
       {
@@ -82,13 +88,9 @@ export default function VoiceAssistantBubble() {
       },
     ]);
 
-    // Perform voice playback
     speakText(response_text);
-
-    // Toast notification
     toast(response_text, "info");
 
-    // Perform navigation if specified by assistant action
     if (action?.nav_target) {
       setTimeout(() => {
         navigate(action.nav_target!);
@@ -97,12 +99,13 @@ export default function VoiceAssistantBubble() {
   };
 
   const submitCommand = async (audioBlob?: Blob | null, textContent?: string) => {
-    if (!audioBlob && (!textContent || !textContent.trim())) return;
+    const queryText = textContent || inputTextRef.current;
+    if (!audioBlob && (!queryText || !queryText.trim())) return;
     setIsProcessing(true);
 
     try {
-      const res = await processAssistantCommand(audioBlob, textContent);
-      handleProcessResponse(res.transcript || textContent || "", res.response_text, res.action);
+      const res = await processAssistantCommand(audioBlob, queryText.trim() || undefined);
+      handleProcessResponse(res.transcript || queryText || "", res.response_text, res.action);
     } catch (err: any) {
       const errorMsg = err.message || "Failed to process command. Please try again.";
       toast(errorMsg, "error");
@@ -118,12 +121,51 @@ export default function VoiceAssistantBubble() {
     } finally {
       setIsProcessing(false);
       setInputText("");
+      liveTranscriptRef.current = "";
     }
   };
 
-  // Start audio recording via MediaRecorder API
+  // Start Voice Recording
   const startRecording = async () => {
     audioChunksRef.current = [];
+    liveTranscriptRef.current = "";
+    setInputText("");
+    setIsRecording(true);
+
+    // Try starting browser Web Speech API for real-time live typing
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+
+        recognition.onresult = (event: any) => {
+          let currentTranscript = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            currentTranscript += event.results[i][0].transcript;
+          }
+          if (currentTranscript.trim()) {
+            liveTranscriptRef.current = currentTranscript;
+            setInputText(currentTranscript);
+          }
+        };
+
+        recognition.onerror = (e: any) => {
+          console.warn("Web Speech API error", e);
+        };
+
+        recognition.start();
+      } catch (e) {
+        console.warn("Web Speech API init failed", e);
+      }
+    }
+
+    // MediaRecorder audio chunk recording
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -136,22 +178,38 @@ export default function VoiceAssistantBubble() {
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         stream.getTracks().forEach((track) => track.stop());
-        submitCommand(audioBlob, undefined);
+        const finalRecordedText = liveTranscriptRef.current || inputTextRef.current;
+        const audioBlob = audioChunksRef.current.length > 0 ? new Blob(audioChunksRef.current, { type: "audio/webm" }) : null;
+
+        if (finalRecordedText.trim()) {
+          submitCommand(null, finalRecordedText.trim());
+        } else if (audioBlob && audioBlob.size > 0) {
+          submitCommand(audioBlob, undefined);
+        }
       };
 
       mediaRecorder.start();
-      setIsRecording(true);
     } catch (err) {
+      setIsRecording(false);
       toast("Microphone access permission denied or unavailable.", "error");
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+    setIsRecording(false);
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
     }
   };
 
@@ -175,7 +233,7 @@ export default function VoiceAssistantBubble() {
               </div>
               <div>
                 <h3 className="text-sm font-semibold leading-tight">Emmy Voice Assistant</h3>
-                <p className="text-xs text-primary-100">Whisper & Ollama Powered</p>
+                <p className="text-xs text-primary-100">Live Voice & Whisper API</p>
               </div>
             </div>
 
@@ -277,9 +335,13 @@ export default function VoiceAssistantBubble() {
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder={isRecording ? "Listening..." : "Type or speak command..."}
-                disabled={isRecording || isProcessing}
-                className="flex-1 rounded-xl border border-slate-300 px-3.5 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-slate-50"
+                placeholder={isRecording ? "Listening to your voice..." : "Type or speak command..."}
+                disabled={isProcessing}
+                className={`flex-1 rounded-xl border px-3.5 py-2 text-sm focus:outline-none transition ${
+                  isRecording
+                    ? "border-rose-400 bg-rose-50 text-rose-900 ring-2 ring-rose-300"
+                    : "border-slate-300 focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                }`}
               />
 
               {/* Voice Recording Button */}
@@ -287,7 +349,7 @@ export default function VoiceAssistantBubble() {
                 type="button"
                 onClick={isRecording ? stopRecording : startRecording}
                 disabled={isProcessing}
-                title={isRecording ? "Stop Recording & Send" : "Hold or Click to Speak"}
+                title={isRecording ? "Stop Recording & Send" : "Click to Speak"}
                 className={`relative flex h-10 w-10 items-center justify-center rounded-xl transition-all ${
                   isRecording
                     ? "bg-rose-500 text-white animate-pulse shadow-md ring-4 ring-rose-200"
@@ -310,7 +372,7 @@ export default function VoiceAssistantBubble() {
         </div>
       )}
 
-      {/* Floating Trigger Bubble (Reference Image Style) */}
+      {/* Floating Trigger Bubble */}
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}

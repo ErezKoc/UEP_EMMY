@@ -5,10 +5,14 @@ from pydantic import BaseModel, Field
 
 class AssistantActionType(str, enum.Enum):
     CREATE_REMINDER = "create_reminder"
+    DELETE_REMINDER = "delete_reminder"
     CREATE_PET = "create_pet"
+    DELETE_PET = "delete_pet"
+    UPDATE_PET = "update_pet"
     NAVIGATE = "navigate"
     CREATE_POST = "create_post"
     SEARCH_VETS = "search_vets"
+    SUBMIT_VERIFICATION = "submit_verification"
     QUERY_PETS = "query_pets"
     GENERAL_REPLY = "general_reply"
 

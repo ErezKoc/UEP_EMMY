@@ -32,9 +32,16 @@ async def process_assistant_command(
         transcript = text.strip()
 
     if not transcript:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please provide spoken audio or typed text for the assistant.",
+        return AssistantProcessResponse(
+            transcript="",
+            response_text="I couldn't hear any speech in that recording. Please try speaking again or type your command below!",
+            action=AssistantAction(
+                action_type="general_reply",
+                summary="Unclear speech audio",
+                params={},
+                nav_target=None,
+            ),
+            execution_result=None,
         )
 
     # Fetch user's pets for intent context

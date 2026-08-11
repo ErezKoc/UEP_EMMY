@@ -277,10 +277,14 @@ export interface PostDetail extends Post {
 
 export type AssistantActionType =
   | "create_reminder"
+  | "delete_reminder"
   | "create_pet"
+  | "delete_pet"
+  | "update_pet"
   | "navigate"
   | "create_post"
   | "search_vets"
+  | "submit_verification"
   | "query_pets"
   | "general_reply";
 
