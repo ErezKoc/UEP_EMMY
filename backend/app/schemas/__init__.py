@@ -6,6 +6,11 @@ from app.schemas.analysis import (
     BreedCandidate,
 )
 from app.schemas.animal import AnimalCreate, AnimalRead, AnimalUpdate
+from app.schemas.assistant import (
+    AssistantAction,
+    AssistantActionType,
+    AssistantProcessResponse,
+)
 from app.schemas.auth import AuthResponse, LoginRequest, SignupRequest
 from app.schemas.moderation import ReportCreate, ReportDecision, ReportRead
 from app.schemas.post import CommentCreate, CommentRead, PostCreate, PostDetail, PostRead

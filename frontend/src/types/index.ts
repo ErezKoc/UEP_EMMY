@@ -272,3 +272,29 @@ export interface Comment {
 export interface PostDetail extends Post {
   comments: Comment[];
 }
+
+// ------------------------------------------------------------- AI Assistant
+
+export type AssistantActionType =
+  | "create_reminder"
+  | "create_pet"
+  | "navigate"
+  | "create_post"
+  | "search_vets"
+  | "query_pets"
+  | "general_reply";
+
+export interface AssistantAction {
+  action_type: AssistantActionType;
+  summary: string;
+  params: Record<string, any>;
+  nav_target: string | null;
+}
+
+export interface AssistantProcessResponse {
+  transcript: string;
+  response_text: string;
+  action: AssistantAction;
+  execution_result: Record<string, any> | null;
+}
+

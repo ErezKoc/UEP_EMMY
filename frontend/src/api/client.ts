@@ -3,6 +3,7 @@ import type {
   AnalysisResponse,
   Animal,
   AnimalPayload,
+  AssistantProcessResponse,
   AuthResponse,
   CurrentUser,
   Post,
@@ -328,3 +329,26 @@ export async function getAnalyses(animalId?: string | null): Promise<AnalysisHis
   const response = await fetch(`${API_BASE}/analysis${query}`, { headers: authHeaders() });
   return parseResponse<AnalysisHistoryItem[]>(response);
 }
+
+// ------------------------------------------------------------- AI Assistant
+
+export async function processAssistantCommand(
+  audioBlob?: Blob | null,
+  text?: string | null,
+): Promise<AssistantProcessResponse> {
+  const formData = new FormData();
+  if (audioBlob) {
+    formData.append("file", audioBlob, "recording.webm");
+  }
+  if (text?.trim()) {
+    formData.append("text", text.trim());
+  }
+
+  const response = await fetch(`${API_BASE}/assistant/process`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+  return parseResponse<AssistantProcessResponse>(response);
+}
+

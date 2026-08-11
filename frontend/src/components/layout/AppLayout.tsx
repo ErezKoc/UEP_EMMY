@@ -5,6 +5,7 @@ import Avatar from "../ui/Avatar";
 import Button from "../ui/Button";
 import { MenuIcon, PawIcon } from "../ui/icons";
 import type { CurrentUser } from "../../types";
+import VoiceAssistantBubble from "../assistant/VoiceAssistantBubble";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard" },
@@ -235,6 +236,8 @@ export default function AppLayout() {
           <p>AI estimates are informational only, not a substitute for a veterinary examination.</p>
         </div>
       </footer>
+
+      <VoiceAssistantBubble />
     </div>
   );
 }
