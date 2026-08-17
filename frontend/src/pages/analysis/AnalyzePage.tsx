@@ -90,7 +90,7 @@ export default function AnalyzePage() {
       {analysis === null ? (
         <>
           <Card
-            title="1 · Which pet is this?"
+            title="Which pet is this?"
             description="Linked analyses appear in that pet's history. You can also analyze without linking."
           >
             <div className="mt-4">
@@ -113,6 +113,15 @@ export default function AnalyzePage() {
             animalId={selectedPetId === NO_PET ? null : selectedPetId}
             onAnalysisComplete={setAnalysis}
           />
+
+          {/* Health questions live in the symptom checker: they answer a
+              different question from "what breed is this?" and need no photo. */}
+          <p className="text-center text-sm text-slate-500">
+            Worried about a symptom rather than the breed?{" "}
+            <Link to="/symptom-check" className="font-medium text-primary-600 underline">
+              Use the symptom checker
+            </Link>
+          </p>
         </>
       ) : (
         <>

@@ -1,4 +1,5 @@
 import type {
+  AnalysisDetail,
   AnalysisHistoryItem,
   AnalysisResponse,
   Animal,
@@ -8,6 +9,9 @@ import type {
   PostDetail,
   ProfileUpdatePayload,
   SignupPayload,
+  SymptomCheck,
+  SymptomIntake,
+  TriageAssessment,
   User,
   UserRole,
   VerificationStatus,
@@ -41,6 +45,39 @@ function authHeaders(): Record<string, string> {
 
 // ---------------------------------------------------------------------------
 
+// A request that never settles leaves the UI spinning with nothing to act on,
+// which is worse than a visible failure. Every call gets an upper bound.
+const REQUEST_TIMEOUT_MS = 20_000;
+
+// Uploads carry a file over the wire and then wait on model inference, so they
+// need a far bigger budget than a JSON read. Twenty seconds used to abort real
+// in-flight analyses and report them as "the backend is down".
+const UPLOAD_TIMEOUT_MS = 120_000;
+
+export async function apiFetch(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  try {
+    return await fetch(path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new ApiError(
+        0,
+        `The server took longer than ${Math.round(timeoutMs / 1000)}s to respond. ` +
+          "It may still be starting up — please try again in a moment.",
+      );
+    }
+    // fetch() rejects with a plain TypeError when it cannot reach the server
+    // at all. That is the genuine "backend is down" case.
+    if (error instanceof TypeError) {
+      throw new ApiError(0, "Could not reach the server. Is the backend running?");
+    }
+    throw error;
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -72,7 +109,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 function requestJson<T>(path: string, method: string, body?: unknown): Promise<T> {
-  return fetch(`${API_BASE}${path}`, {
+  return apiFetch(`${API_BASE}${path}`, {
     method,
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -91,7 +128,7 @@ export function login(email: string, password: string): Promise<AuthResponse> {
 
 /** Restore the session for the stored token (401 → token invalid/expired). */
 export async function fetchCurrentUser(): Promise<User> {
-  const response = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
+  const response = await apiFetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
   return parseResponse<User>(response);
 }
 
@@ -109,23 +146,23 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
 export async function uploadAvatar(file: File): Promise<User> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(`${API_BASE}/users/me/avatar`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  });
+  const response = await apiFetch(
+    `${API_BASE}/users/me/avatar`,
+    { method: "POST", headers: authHeaders(), body: formData },
+    UPLOAD_TIMEOUT_MS,
+  );
   return parseResponse<User>(response);
 }
 
 // --------------------------------------------------------------------- pets
 
 export async function getAnimals(): Promise<Animal[]> {
-  const response = await fetch(`${API_BASE}/animals`, { headers: authHeaders() });
+  const response = await apiFetch(`${API_BASE}/animals`, { headers: authHeaders() });
   return parseResponse<Animal[]>(response);
 }
 
 export async function getAnimal(animalId: string): Promise<Animal> {
-  const response = await fetch(`${API_BASE}/animals/${animalId}`, { headers: authHeaders() });
+  const response = await apiFetch(`${API_BASE}/animals/${animalId}`, { headers: authHeaders() });
   return parseResponse<Animal>(response);
 }
 
@@ -144,11 +181,11 @@ export function deleteAnimal(animalId: string): Promise<void> {
 export async function uploadAnimalPhoto(animalId: string, file: File): Promise<Animal> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(`${API_BASE}/animals/${animalId}/photo`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  });
+  const response = await apiFetch(
+    `${API_BASE}/animals/${animalId}/photo`,
+    { method: "POST", headers: authHeaders(), body: formData },
+    UPLOAD_TIMEOUT_MS,
+  );
   return parseResponse<Animal>(response);
 }
 
@@ -168,7 +205,7 @@ export async function getPosts(query: PostQuery = {}): Promise<Post[]> {
   });
   if (query.q?.trim()) params.set("q", query.q.trim());
   if (query.authorRole) params.set("author_role", query.authorRole);
-  const response = await fetch(`${API_BASE}/posts?${params}`);
+  const response = await apiFetch(`${API_BASE}/posts?${params}`);
   return parseResponse<Post[]>(response);
 }
 
@@ -193,7 +230,7 @@ export async function getVeterinarians(q = "", verifiedOnly = false): Promise<Ve
   if (q.trim()) params.set("q", q.trim());
   if (verifiedOnly) params.set("verified_only", "true");
   const suffix = params.size > 0 ? `?${params}` : "";
-  const response = await fetch(`${API_BASE}/vets${suffix}`);
+  const response = await apiFetch(`${API_BASE}/vets${suffix}`);
   return parseResponse<Veterinarian[]>(response);
 }
 
@@ -203,24 +240,24 @@ export async function getVeterinarians(q = "", verifiedOnly = false): Promise<Ve
 export async function submitVerification(file: File): Promise<VetVerification> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await fetch(`${API_BASE}/verification`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  });
+  const response = await apiFetch(
+    `${API_BASE}/verification`,
+    { method: "POST", headers: authHeaders(), body: formData },
+    UPLOAD_TIMEOUT_MS,
+  );
   return parseResponse<VetVerification>(response);
 }
 
 /** The caller's own submissions, newest first. */
 export async function getMyVerifications(): Promise<VetVerification[]> {
-  const response = await fetch(`${API_BASE}/verification/me`, { headers: authHeaders() });
+  const response = await apiFetch(`${API_BASE}/verification/me`, { headers: authHeaders() });
   return parseResponse<VetVerification[]>(response);
 }
 
 /** Admin review queue, oldest first; pass a status to filter. */
 export async function getVerifications(status?: VerificationStatus): Promise<VetVerification[]> {
   const suffix = status ? `?status=${status}` : "";
-  const response = await fetch(`${API_BASE}/verification${suffix}`, { headers: authHeaders() });
+  const response = await apiFetch(`${API_BASE}/verification${suffix}`, { headers: authHeaders() });
   return parseResponse<VetVerification[]>(response);
 }
 
@@ -241,22 +278,68 @@ export function decideVerification(
 export async function uploadForAnalysis(
   file: File,
   animalId?: string | null,
+  intake?: SymptomIntake | null,
 ): Promise<AnalysisResponse> {
   const formData = new FormData();
   formData.append("file", file);
   if (animalId) formData.append("animal_id", animalId);
+  // Multipart request, so the answers travel as a JSON string.
+  if (intake) formData.append("intake", JSON.stringify(intake));
 
-  const response = await fetch(`${API_BASE}/analysis/upload`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  });
+  const response = await apiFetch(
+    `${API_BASE}/analysis/upload`,
+    { method: "POST", headers: authHeaders(), body: formData },
+    UPLOAD_TIMEOUT_MS,
+  );
   return parseResponse<AnalysisResponse>(response);
+}
+
+// ---------------------------------------------------------- symptom checks
+
+/** Assess symptoms without uploading a photo or storing anything. */
+export function assessSymptoms(intake: SymptomIntake): Promise<TriageAssessment> {
+  return requestJson<TriageAssessment>("/triage", "POST", intake);
+}
+
+/** Assess symptoms and save the result to the signed-in owner's history. */
+export function createSymptomCheck(
+  intake: SymptomIntake,
+  animalId?: string | null,
+): Promise<SymptomCheck> {
+  return requestJson<SymptomCheck>("/symptom-checks", "POST", {
+    ...intake,
+    animal_id: animalId || null,
+  });
+}
+
+/** The signed-in user's saved checks, newest first, optionally per pet. */
+export async function getSymptomChecks(animalId?: string | null): Promise<SymptomCheck[]> {
+  const query = animalId ? `?animal_id=${animalId}` : "";
+  const response = await apiFetch(`${API_BASE}/symptom-checks${query}`, { headers: authHeaders() });
+  return parseResponse<SymptomCheck[]>(response);
+}
+
+/** One saved check owned by the signed-in user. */
+export async function getSymptomCheck(checkId: string): Promise<SymptomCheck> {
+  const response = await apiFetch(`${API_BASE}/symptom-checks/${checkId}`, {
+    headers: authHeaders(),
+  });
+  return parseResponse<SymptomCheck>(response);
+}
+
+export function deleteSymptomCheck(checkId: string): Promise<void> {
+  return requestJson<void>(`/symptom-checks/${checkId}`, "DELETE");
 }
 
 /** The signed-in user's past analyses, newest first, optionally per pet. */
 export async function getAnalyses(animalId?: string | null): Promise<AnalysisHistoryItem[]> {
   const query = animalId ? `?animal_id=${animalId}` : "";
-  const response = await fetch(`${API_BASE}/analysis${query}`, { headers: authHeaders() });
+  const response = await apiFetch(`${API_BASE}/analysis${query}`, { headers: authHeaders() });
   return parseResponse<AnalysisHistoryItem[]>(response);
+}
+
+/** One complete analysis owned by the signed-in user. */
+export async function getAnalysis(analysisId: string): Promise<AnalysisDetail> {
+  const response = await apiFetch(`${API_BASE}/analysis/${analysisId}`, { headers: authHeaders() });
+  return parseResponse<AnalysisDetail>(response);
 }

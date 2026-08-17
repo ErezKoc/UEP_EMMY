@@ -65,9 +65,18 @@ class ONNXImageAnalysisService(ImageAnalysisService):
         
         self.breed_session = ort.InferenceSession(breed_model_path)
         self.age_session = ort.InferenceSession(age_model_path)
-        
+
         # We assume a standard image classification input shape: [1, 3, 224, 224]
         self.input_shape = (224, 224)
+
+        self._warm_up()
+
+    def _warm_up(self) -> None:
+        """Run one throwaway inference so the first real upload is not the one
+        that pays for lazily allocated buffers and kernel setup."""
+        blank = np.zeros((1, 3, *self.input_shape), dtype=np.float32)
+        for session in (self.breed_session, self.age_session):
+            session.run(None, {session.get_inputs()[0].name: blank})
 
     def _preprocess_image(self, image_bytes: bytes) -> "np.ndarray":
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")

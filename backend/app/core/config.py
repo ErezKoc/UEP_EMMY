@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     max_upload_mb: int = 10
     cors_origins: str = "http://localhost:5173"
 
+    # Refuse to serve triage results from rules whose citations nobody has
+    # checked. False while the team is still verifying sources; must be true
+    # anywhere real users can reach the app.
+    triage_require_verified_rules: bool = False
+
     # Auth (MVP): signs session tokens. Override in .env for anything shared.
     secret_key: str = "dev-only-change-me"
     token_ttl_hours: int = 24 * 7

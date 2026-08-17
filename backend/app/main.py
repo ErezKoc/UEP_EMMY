@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,6 +12,13 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.seed import ensure_admin_account, seed_demo_data
 from app.db.session import SessionLocal, engine
+from app.services.ai import get_analysis_service
+
+# Uvicorn only configures its own loggers, so without this the app's own INFO
+# lines (which analyzer loaded, why it fell back) never reach the container log.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -20,6 +28,10 @@ def ensure_compatibility_columns() -> None:
     inspector = inspect(engine)
     animal_columns = {column["name"] for column in inspector.get_columns("animals")}
     animal_additions = {
+        # Added with the pets work; databases created before it never got them,
+        # which made every /v1/animals call fail with "no such column".
+        "birth_date": "ALTER TABLE animals ADD COLUMN birth_date DATE",
+        "photo_url": "ALTER TABLE animals ADD COLUMN photo_url VARCHAR(1024)",
         "photo_position_x": (
             "ALTER TABLE animals ADD COLUMN photo_position_x INTEGER NOT NULL DEFAULT 50"
         ),
@@ -33,6 +45,9 @@ def ensure_compatibility_columns() -> None:
     }
     analysis_additions = {
         "user_id": "ALTER TABLE ai_analysis_logs ADD COLUMN user_id CHAR(32)",
+        "intake": "ALTER TABLE ai_analysis_logs ADD COLUMN intake JSON",
+        "triage": "ALTER TABLE ai_analysis_logs ADD COLUMN triage JSON",
+        "triage_level": "ALTER TABLE ai_analysis_logs ADD COLUMN triage_level VARCHAR(10)",
     }
     post_columns = {column["name"] for column in inspector.get_columns("posts")}
     post_additions = {
@@ -78,6 +93,12 @@ def ensure_compatibility_columns() -> None:
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_posts_analysis_id ON posts (analysis_id)")
         )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_ai_analysis_logs_triage_level "
+                "ON ai_analysis_logs (triage_level)"
+            )
+        )
 
 
 @asynccontextmanager
@@ -91,6 +112,20 @@ async def lifespan(app: FastAPI):
         # Runs on every boot: vet verification is unusable without an admin, and
         # existing databases predate the admin role.
         ensure_admin_account(db)
+
+    # Build the analysis service now rather than on first use. Reading the two
+    # ~19 MB ONNX files cold can take well over half a minute in Docker, and
+    # paying that inside the first upload made the request outlive the client's
+    # timeout — the user saw "the server did not respond" on an upload that was
+    # in fact still running. Startup is the right place to absorb it.
+    try:
+        service = get_analysis_service()
+        logger.info("Analysis service ready: %s", type(service).__name__)
+    except Exception:
+        # A warm-up failure must not stop the app booting; the request path
+        # falls back to the mock analyzer on its own.
+        logger.exception("Could not warm up the analysis service.")
+
     yield
 
 

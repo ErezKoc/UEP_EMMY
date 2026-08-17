@@ -10,6 +10,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.analysis import AIAnalysisLog
+    from app.models.symptom_check import SymptomCheck
     from app.models.user import User
 
 
@@ -46,3 +47,4 @@ class Animal(Base):
 
     owner: Mapped["User"] = relationship(back_populates="animals")
     analyses: Mapped[list["AIAnalysisLog"]] = relationship(back_populates="animal")
+    symptom_checks: Mapped[list["SymptomCheck"]] = relationship(back_populates="animal")

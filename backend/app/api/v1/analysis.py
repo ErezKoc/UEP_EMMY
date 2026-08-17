@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -8,9 +9,11 @@ from app.api.deps import get_current_user, get_optional_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import AIAnalysisLog, Animal, User
-from app.schemas import AnalysisHistoryItem, AnalysisResponse, AnalysisResult
+from app.schemas import AnalysisDetail, AnalysisHistoryItem, AnalysisResponse, AnalysisResult
+from app.schemas.triage import SymptomIntake, TriageAssessment
 from app.services.ai import ImageAnalysisService, get_analysis_service
 from app.services.storage import StorageService, get_storage_service
+from app.services.triage import TriageEngine, get_triage_engine
 
 router = APIRouter()
 
@@ -21,10 +24,13 @@ ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 async def upload_and_analyze(
     file: UploadFile = File(...),
     animal_id: uuid.UUID | None = Form(default=None),
+    # The symptom answers, as a JSON string, because this is a multipart request.
+    intake: str | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
     storage: StorageService = Depends(get_storage_service),
     analyzer: ImageAnalysisService = Depends(get_analysis_service),
+    triage_engine: TriageEngine = Depends(get_triage_engine),
 ) -> AnalysisResponse:
     """Accept a pet image, store it, run AI analysis, and persist the log.
 
@@ -52,6 +58,7 @@ async def upload_and_analyze(
             detail=f"Image exceeds the {settings.max_upload_mb} MB upload limit.",
         )
 
+    animal: Animal | None = None
     if animal_id is not None:
         if current_user is None:
             raise HTTPException(
@@ -65,10 +72,37 @@ async def upload_and_analyze(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"Pet {animal_id} not found."
             )
 
-    key = storage.build_key("uploads", file.filename or "image")
-    stored = storage.put_object(key, image_bytes, file.content_type)
+    # Parse answers early, then add a trusted species before the rules run.
+    parsed_intake: SymptomIntake | None = None
+    if intake:
+        try:
+            parsed_intake = SymptomIntake.model_validate_json(intake)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Could not read the symptom answers: {error}",
+            ) from error
 
-    result: AnalysisResult = analyzer.analyze(image_bytes, file.filename or "image")
+    key = storage.build_key("uploads", file.filename or "image")
+    # Writing the file and running the model both block; on the event loop they
+    # would stall every other request for the duration of the analysis.
+    stored = await run_in_threadpool(storage.put_object, key, image_bytes, file.content_type)
+
+    result: AnalysisResult = await run_in_threadpool(
+        analyzer.analyze, image_bytes, file.filename or "image"
+    )
+
+    assessment: TriageAssessment | None = None
+    if parsed_intake is not None:
+        parsed_intake = parsed_intake.model_copy(
+            update={
+                "species": animal.species if animal is not None else result.species,
+                "age_category": (
+                    animal.age_category if animal is not None else result.age_estimate.category
+                ),
+            }
+        )
+        assessment = triage_engine.assess(parsed_intake)
 
     log = AIAnalysisLog(
         user_id=current_user.id if current_user else None,
@@ -79,6 +113,9 @@ async def upload_and_analyze(
         species=result.species,
         species_confidence=result.species_confidence,
         result=result.model_dump(mode="json"),
+        intake=parsed_intake.model_dump(mode="json") if parsed_intake else None,
+        triage=assessment.model_dump(mode="json") if assessment else None,
+        triage_level=assessment.level.value if assessment else None,
     )
     db.add(log)
     db.commit()
@@ -90,6 +127,7 @@ async def upload_and_analyze(
         image_url=log.image_url,
         created_at=log.created_at,
         result=result,
+        triage=assessment,
     )
 
 
@@ -113,3 +151,27 @@ def list_analyses(
     if animal_id is not None:
         statement = statement.where(AIAnalysisLog.animal_id == animal_id)
     return list(db.scalars(statement).all())
+
+
+@router.get("/{analysis_id}", response_model=AnalysisDetail)
+def get_analysis(
+    analysis_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AIAnalysisLog:
+    """Return one complete analysis belonging to the signed-in user."""
+    statement = (
+        select(AIAnalysisLog)
+        .options(selectinload(AIAnalysisLog.animal))
+        .where(
+            AIAnalysisLog.id == analysis_id,
+            AIAnalysisLog.user_id == current_user.id,
+        )
+    )
+    analysis = db.scalars(statement).first()
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis {analysis_id} not found.",
+        )
+    return analysis

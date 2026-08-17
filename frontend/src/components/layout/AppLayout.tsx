@@ -8,6 +8,7 @@ import { MenuIcon, PawIcon } from "../ui/icons";
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/analyze", label: "Analyze" },
+  { to: "/symptom-check", label: "Symptom checker" },
   { to: "/pets", label: "My Pets" },
   { to: "/community", label: "Community" },
   { to: "/vets", label: "Vets" },

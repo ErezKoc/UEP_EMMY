@@ -1,50 +1,88 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ApiError, getAnalyses, getAnimals } from "../../api/client";
-import { ArrowLeftIcon, Badge, Button, EmptyState, Select, Spinner } from "../../components/ui";
+import {
+  ArrowLeftIcon,
+  Badge,
+  Button,
+  ChevronRightIcon,
+  EmptyState,
+  Select,
+  Spinner,
+} from "../../components/ui";
 import { capitalize, formatPercent, formatRelativeTime } from "../../lib/format";
 import type { AnalysisHistoryItem, Animal } from "../../types";
 
 const ALL_PETS = "";
 
-function HistoryRow({ item }: { item: AnalysisHistoryItem }) {
+function HistoryRow({ item, backTo }: { item: AnalysisHistoryItem; backTo: string }) {
   const { result } = item;
   const topBreed = result.breed_candidates[0];
   return (
-    <li className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
-      <img
-        src={item.image_url}
-        alt={`Analyzed ${result.species}`}
-        className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-slate-800">{capitalize(result.species)}</span>
-          <span className="text-sm text-slate-500">
-            {formatPercent(result.species_confidence)} confidence
-          </span>
-          {item.animal ? (
-            <Badge variant="primary">{item.animal.name}</Badge>
-          ) : (
-            <Badge variant="neutral">Not linked</Badge>
-          )}
+    <li>
+      <Link
+        to={`/analysis/${item.id}`}
+        state={{ from: backTo }}
+        className="group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-primary-300 hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600"
+      >
+        <img
+          src={item.image_url}
+          alt={`Analyzed ${result.species}`}
+          className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-slate-800 group-hover:text-primary-700">
+              {capitalize(result.species)}
+            </span>
+            <span className="text-sm text-slate-500">
+              {formatPercent(result.species_confidence)} confidence
+            </span>
+            {item.animal ? (
+              <Badge variant="primary">{item.animal.name}</Badge>
+            ) : (
+              <Badge variant="neutral">Not linked</Badge>
+            )}
+            {item.triage && (
+              <Badge
+                variant={
+                  item.triage.level === "red"
+                    ? "danger"
+                    : item.triage.level === "amber"
+                      ? "warning"
+                      : // Only an explicit `green` earns the success styling.
+                        // `unassessed` — and any level a stored verdict carries
+                        // that this build does not know — stays neutral.
+                        item.triage.level === "green"
+                        ? "success"
+                        : "neutral"
+                }
+              >
+                {item.triage.headline}
+              </Badge>
+            )}
+          </div>
+          <p className="mt-1 truncate text-sm text-slate-600">
+            {topBreed
+              ? `Likely ${topBreed.breed} (${formatPercent(topBreed.confidence)})`
+              : "No breed estimate"}
+            {" / "}
+            {result.age_estimate.category} age
+          </p>
         </div>
-        <p className="mt-1 truncate text-sm text-slate-600">
-          {topBreed
-            ? `Likely ${topBreed.breed} (${formatPercent(topBreed.confidence)})`
-            : "No breed estimate"}
-          {" · "}
-          {result.age_estimate.category} age
-        </p>
-      </div>
-      <time className="shrink-0 text-xs text-slate-400" dateTime={item.created_at}>
-        {formatRelativeTime(item.created_at)}
-      </time>
+        <div className="flex shrink-0 items-center gap-2 text-slate-400">
+          <time className="hidden text-xs sm:block" dateTime={item.created_at}>
+            {formatRelativeTime(item.created_at)}
+          </time>
+          <ChevronRightIcon className="h-5 w-5 transition group-hover:translate-x-0.5 group-hover:text-primary-600" />
+        </div>
+      </Link>
     </li>
   );
 }
 
 export default function AnalysisHistoryPage() {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const petFilter = searchParams.get("pet") ?? ALL_PETS;
 
@@ -98,7 +136,7 @@ export default function AnalysisHistoryPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Analysis history</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Every AI analysis you ran, newest first.
+            Select an analysis to inspect its full results and reported symptoms.
           </p>
         </div>
         <div className="w-56">
@@ -145,7 +183,11 @@ export default function AnalysisHistoryPage() {
         {!isLoading && !loadError && items.length > 0 && (
           <ul className="space-y-3">
             {items.map((item) => (
-              <HistoryRow key={item.id} item={item} />
+              <HistoryRow
+                key={item.id}
+                item={item}
+                backTo={`${location.pathname}${location.search}`}
+              />
             ))}
           </ul>
         )}

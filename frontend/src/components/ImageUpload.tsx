@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DragEvent, ChangeEvent } from "react";
 import { ApiError, uploadForAnalysis } from "../api/client";
 import { ImageIcon } from "./ui/icons";
-import type { AnalysisResponse } from "../types";
+import type { AnalysisResponse, SymptomIntake } from "../types";
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE_MB = 10;
@@ -21,9 +21,11 @@ interface ImageUploadProps {
   onAnalysisComplete: (analysis: AnalysisResponse) => void;
   /** Pet to link the analysis to (Member 4's pet picker). Omit for unlinked. */
   animalId?: string | null;
+  /** Symptom answers assessed alongside the photo. Omit for breed-only. */
+  intake?: SymptomIntake | null;
 }
 
-export default function ImageUpload({ onAnalysisComplete, animalId }: ImageUploadProps) {
+export default function ImageUpload({ onAnalysisComplete, animalId, intake }: ImageUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [stageIndex, setStageIndex] = useState(0);
@@ -59,7 +61,7 @@ export default function ImageUpload({ onAnalysisComplete, animalId }: ImageUploa
 
     setIsUploading(true);
     try {
-      const analysis = await uploadForAnalysis(file, animalId);
+      const analysis = await uploadForAnalysis(file, animalId, intake);
       onAnalysisComplete(analysis);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed. Is the backend running?");

@@ -55,7 +55,7 @@ rarely need to touch `App.tsx`.
 | `/`, `/dashboard`, `*` (404), shell, `components/ui` | Member 1 | Design system, layout, landing |
 | `/login`, `/signup`, `/profile`, `/settings`         | Member 2 | Auth & profiles (`pages/auth/`) |
 | `/pets`, `/pets/:petId`                              | Member 3 | Pet management (`pages/pets/`) |
-| `/analyze`, `/analysis/history`                      | Member 4 | AI analysis flow (`pages/analysis/`) |
+| `/analyze`, `/analysis/history`, `/analysis/:analysisId` | Member 4 | AI analysis flow (`pages/analysis/`) |
 | `/community`, `/community/new`, `/community/:postId`, `/vets` | Member 5 | Community & vets (`pages/community/`) |
 
 Shared UI lives in `src/components/ui` (import from `../components/ui`):
@@ -170,7 +170,8 @@ Tables are created and demo data (a pet owner, a veterinarian, sample posts) is
 seeded automatically on first startup. No PostgreSQL handy? Set
 `DATABASE_URL=sqlite:///./uep_emmy.db` in `.env` for a throwaway local database.
 
-> **Schema changed (July 2026):** `users` gained `password_hash`, `bio`, and
+> **Schema changed (July 2026):** `ai_analysis_logs` gained `intake`, `triage`,
+> and `triage_level` (symptom triage); `users` gained `password_hash`, `bio`, and
 > `avatar_url` (auth); `animals` gained `birth_date`, `photo_url`, and thumbnail
 > focus fields (pets); `ai_analysis_logs` gained `user_id` (history); `posts`
 > gained `analysis_id` plus `image_url` (community sharing); and `users` gained
@@ -196,6 +197,8 @@ API docs: <http://localhost:8000/docs>
 | `POST /v1/animals/{id}/photo`  | Multipart pet-photo upload                         |
 | `POST /v1/analysis/upload`     | Multipart image upload → stored + ONNX AI analysis; optional `animal_id` links it to your pet (auth required for linking) |
 | `GET /v1/analysis`             | Your past analyses, newest first; `?animal_id=` filters by pet |
+| `GET /v1/analysis/{id}`        | Full owner-only analysis, symptoms, and triage details |
+| `POST /v1/triage`              | Assess reported symptoms; stores nothing (handy for testing the rules) |
 | `GET /v1/posts`                | Paginated posts; supports `q` and `author_role`    |
 | `POST /v1/posts`               | Create a signed-in user's post; optional analysis  |
 | `GET /v1/posts/{id}`           | Post with comments                                 |
@@ -239,6 +242,134 @@ cd backend
 python generate_real_onnx_models.py
 ```
 
+## Symptom triage (rule engine)
+
+The photo classifier answers *"what animal is this"*. The triage engine answers
+*"should I be worried"*, from a short structured symptom intake. It is a
+**knowledge-based system, not a model**: no training data, no accuracy claim we
+cannot support, and every verdict is explainable down to the rule that produced it
+and the publication that rule came from.
+
+`backend/app/services/triage/` holds the whole thing:
+
+| File | What it is |
+|------|-----------|
+| `sources.py` | Every publication we read, with URL, access date, and species scope |
+| `rules.py` | **The entire clinical logic**, in one readable table |
+| `candidates.py` | Rules we could NOT source — parked, not loaded, affect nothing |
+| `conditions.py` | Declarative conditions that describe themselves in English |
+| `citations.py` | Provenance types and their validation |
+| `engine.py` | Two-tier evaluation + the review report |
+
+Two tiers: an **emergency rule** short-circuits the assessment, so a red flag can
+never be outweighed by reassuring answers. Everything else contributes a
+**weight**; a score of `AMBER_THRESHOLD` or more means "see a vet soon". Ties
+round up — an unnecessary check-up costs far less than a missed problem, and that
+bias is deliberate and documented.
+
+### Where the rules come from
+
+Every rule traces to a page that was fetched and read on the date recorded in
+`sources.py`. Nineteen pages so far, from Merck Veterinary Manual, ASPCA, Cornell
+(Feline Health Center and Riney Canine Health Center), the American College of
+Veterinary Surgeons, University of Missouri Veterinary Health Center, and VCA
+Animal Hospitals — covering emergencies, heatstroke, GDV, feline and canine
+anorexia, diarrhoea, urinary obstruction, lameness, polydipsia, urgent eye signs,
+uveitis, glaucoma, ocular medication safety, and external, middle, and inner ear
+disease.
+
+Species scope is enforced in code. A cat-only or dog-only citation cannot be
+attached to a broader rule: constructing that rule raises an error, and matching
+also checks the selected pet or image-analysis species before clinical advice is
+generated.
+
+Deliberately **not** cited, because the pages could not be read: the AVMA
+emergency-care page (renders empty without JavaScript), AAHA (HTTP 403), and
+VIN/Veterinary Partner (blocked). If you can access them, they are the obvious
+next sources to add.
+
+The evidence is strong for emergencies — publishers agree with each other almost
+word for word — and thinner for the graded middle. The current table has 25
+emergency rules and 8 graded rules. Heuristics
+that felt sensible but had no published source sit in
+`candidates.py`, unused, waiting for a veterinarian to accept or reject them. A
+test enforces that they cannot leak into the live table.
+
+A second research round measurably improved the rules rather than just adding to
+them. It closed a real gap (a dog off its food matched nothing and returned a
+confident "monitor at home"), corrected a rule that was simply wrong (lameness
+fired identically whether a dog had limped for an hour or a week — VCA's threshold
+is 24 hours), and replaced a guess with published eye guidance instead of
+extrapolating from Merck's eye-injury rule.
+Vomiting and diarrhoea were also split into separate answers, because the sources
+give them different thresholds.
+
+A third audit removed the feline corneal-ulcer citation from the cross-species eye
+rule. A new red or watery eye now recommends contacting a clinic today and an
+examination within 24 hours, while pain, clouding, pupil or vision change, bulging,
+abnormal discharge, chemical exposure, or rapid worsening escalates to same-day
+urgent care. The result also warns against unsupervised eye medication and links
+directly to every source.
+
+A fourth audit added dog-and-cat ear guidance. Ear problems lasting several days,
+getting worse, or showing redness, pain, odor, discharge, scratching, or head
+shaking now recommend contacting a clinic today for an examination within 24-48
+hours. Head tilt, balance or hearing changes, nystagmus, facial weakness, major
+swelling, severe discharge, self-injury, or possible foreign material escalate to
+same-day urgent care. The 24-48 hour timing is deliberately marked as an
+extrapolation requiring veterinary review; the sources support examination and
+cause-directed treatment but do not establish one universal time threshold.
+
+### Citation states
+
+1. **Retrieved** — the page was read, URL and access date recorded, and the rule
+   records in `supports` what the source actually says. Every rule is here.
+2. **Verified** — a named person on the team independently opened the source and
+   confirmed it supports the exact claim. **Nothing is here yet.**
+
+`TRIAGE_REQUIRE_VERIFIED_RULES=true` refuses to start the engine until every rule
+reaches state 2. Keep it false in development; turn it on before real users.
+
+**To verify a rule:** open its URL, confirm the claim, set `verified_by` on the
+citation. *If the source does not support the claim, change the rule — never the
+citation.*
+
+### Getting the rules reviewed
+
+The complete clinical logic prints as plain English, including the open questions
+and the unsourced candidates:
+
+```bash
+cd backend
+python -m app.services.triage.report
+```
+
+Hand that to a veterinarian (university faculty, a local clinic, your mentor's
+network). The report highlights every open reviewer question and any rule marked
+**EXTRAPOLATION**, so those are the first things a reviewer can challenge.
+
+### Tests
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
+- `tests/test_triage_provenance.py` — integrity: every rule cited, every citation
+  carries a real URL and access date, **no rule may cite a page not in
+  `sources.py`**, every rule stays inside its citations' species scope, unsourced
+  candidates cannot reach the engine, and the strict-mode production gate
+  provably blocks unverified rules.
+- `tests/test_triage_vignettes.py` — accuracy: 31 realistic cases with an expected
+  urgency assigned *before* running the engine, each recording the source-based
+  rationale for its label. **Under-triage must be zero**; over-triage is reported,
+  not hidden. Current result: 31 vignettes, 31 agreement, 0 over-triage, 0 under-triage.
+
+Labels are team-assigned from the cited sources and still pending veterinary
+review. When a reviewer disagrees with a label, change the label rather than the
+engine — the one exception is when a *weight* was our arbitrary choice rather than
+the source's claim, which is how `increased_thirst` was corrected from 2 to 3.
 ## Swapping services for AWS
 
 - **Storage** — implement `StorageService` (`backend/app/services/storage.py`) with

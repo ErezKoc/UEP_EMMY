@@ -10,6 +10,10 @@ venv/
 # Local "S3" storage (uploaded media)
 backend/storage/
 
+# Audit and evaluation output. Regenerate with:
+#   cd backend && python -m tests.eval.run_audit
+backend/reports/
+
 # Node / frontend
 node_modules/
 frontend/dist/

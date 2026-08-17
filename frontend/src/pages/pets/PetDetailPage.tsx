@@ -204,8 +204,8 @@ export default function PetDetailPage() {
 
       <Card
         className="mt-6"
-        title="Analysis history"
-        description={`AI analyses linked to ${pet.name}.`}
+        title="Health history"
+        description={`AI analyses and symptom checks linked to ${pet.name}.`}
       >
         <div className="mt-4 flex flex-wrap gap-2">
           <Link to={`/analysis/history?pet=${pet.id}`}>
@@ -213,9 +213,19 @@ export default function PetDetailPage() {
               View {pet.name}&apos;s analyses
             </Button>
           </Link>
+          <Link to={`/symptom-check/history?pet=${pet.id}`}>
+            <Button variant="secondary" size="sm">
+              View {pet.name}&apos;s symptom checks
+            </Button>
+          </Link>
           <Link to={`/analyze?pet=${pet.id}`}>
             <Button variant="secondary" size="sm">
               Analyze a photo
+            </Button>
+          </Link>
+          <Link to={`/symptom-check?pet=${pet.id}`}>
+            <Button variant="secondary" size="sm">
+              Check symptoms
             </Button>
           </Link>
         </div>

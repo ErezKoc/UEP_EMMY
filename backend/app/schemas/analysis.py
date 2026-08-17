@@ -1,10 +1,12 @@
 import uuid
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.animal import AgeCategory
 from app.schemas.animal import AnimalRead
 from app.schemas.common import UTCDateTime
+from app.schemas.triage import SymptomIntake, TriageAssessment
 
 
 class BreedCandidate(BaseModel):
@@ -40,6 +42,8 @@ class AnalysisResponse(BaseModel):
     image_url: str
     created_at: UTCDateTime
     result: AnalysisResult
+    # Present only when the owner answered the symptom questions.
+    triage: TriageAssessment | None = None
 
 
 class AnalysisHistoryItem(BaseModel):
@@ -52,5 +56,41 @@ class AnalysisHistoryItem(BaseModel):
     created_at: UTCDateTime
     # Stored verbatim as JSON at upload time; validates back into the schema.
     result: AnalysisResult
+    triage: TriageAssessment | None = None
     # The linked pet, if any (deleted pets leave analyses unlinked).
     animal: AnimalRead | None
+
+    @field_validator("triage", mode="before")
+    @classmethod
+    def drop_unreadable_triage(cls, value: Any) -> Any:
+        """Never let one old stored verdict break the whole history page.
+
+        Triage results are stored verbatim so a past verdict stays reproducible
+        after the rules change. The cost is that an old snapshot may not match
+        today's schema — when the rule table was reorganised, `fired_rules`
+        gained `sources` in place of `citation`. Validating those strictly made
+        a single legacy row return 500 for the entire list, which is a far worse
+        outcome than showing that row without its triage.
+        """
+        if value is None or isinstance(value, TriageAssessment):
+            return value
+        try:
+            return TriageAssessment.model_validate(value)
+        except Exception:
+            return None
+
+
+class AnalysisDetail(AnalysisHistoryItem):
+    """Complete stored analysis, including the owner's symptom answers."""
+
+    intake: SymptomIntake | None = None
+
+    @field_validator("intake", mode="before")
+    @classmethod
+    def drop_unreadable_intake(cls, value: Any) -> Any:
+        if value is None or isinstance(value, SymptomIntake):
+            return value
+        try:
+            return SymptomIntake.model_validate(value)
+        except Exception:
+            return None

@@ -744,6 +744,32 @@ async function handlePosts(request: Request, env: Env, url: URL): Promise<Respon
   return null;
 }
 
+const ANALYSIS_SELECT = `
+  SELECT l.id, l.image_url, l.created_at, l.result_json,
+    a.id AS animal_id, a.name, a.species, a.breed, a.birth_date, a.photo_url,
+    a.photo_position_x, a.photo_position_y, a.photo_zoom, a.age_category,
+    a.owner_id, a.created_at AS animal_created_at
+  FROM ai_analysis_logs l LEFT JOIN animals a ON a.id = l.animal_id`;
+
+function analysisFromJoined(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    image_url: String(row.image_url),
+    created_at: String(row.created_at),
+    result: JSON.parse(String(row.result_json)),
+    intake: null,
+    triage: null,
+    animal: row.animal_id ? {
+      id: String(row.animal_id), name: String(row.name), species: String(row.species),
+      breed: (row.breed as string | null) ?? null, birth_date: (row.birth_date as string | null) ?? null,
+      photo_url: (row.photo_url as string | null) ?? null, photo_position_x: Number(row.photo_position_x),
+      photo_position_y: Number(row.photo_position_y), photo_zoom: Number(row.photo_zoom),
+      age_category: String(row.age_category), owner_id: String(row.owner_id),
+      created_at: String(row.animal_created_at),
+    } : null,
+  };
+}
+
 async function handleAnalysis(request: Request, env: Env, url: URL): Promise<Response | null> {
   const path = url.pathname;
   if (path === "/v1/analysis" && request.method === "GET") {
@@ -751,29 +777,21 @@ async function handleAnalysis(request: Request, env: Env, url: URL): Promise<Res
     const animalId = (url.searchParams.get("animal_id") ?? "").trim();
     const condition = animalId ? " AND l.animal_id = ?" : "";
     const statement = env.DB.prepare(
-      `SELECT l.id, l.image_url, l.created_at, l.result_json,
-        a.id AS animal_id, a.name, a.species, a.breed, a.birth_date, a.photo_url,
-        a.photo_position_x, a.photo_position_y, a.photo_zoom, a.age_category,
-        a.owner_id, a.created_at AS animal_created_at
-       FROM ai_analysis_logs l LEFT JOIN animals a ON a.id = l.animal_id
-       WHERE l.user_id = ?${condition} ORDER BY l.created_at DESC`,
+      `${ANALYSIS_SELECT} WHERE l.user_id = ?${condition} ORDER BY l.created_at DESC`,
     );
     const rows = await (animalId ? statement.bind(actor.id, animalId) : statement.bind(actor.id))
       .all<Record<string, unknown>>();
-    return json(rows.results.map((row) => ({
-      id: String(row.id),
-      image_url: String(row.image_url),
-      created_at: String(row.created_at),
-      result: JSON.parse(String(row.result_json)),
-      animal: row.animal_id ? {
-        id: String(row.animal_id), name: String(row.name), species: String(row.species),
-        breed: (row.breed as string | null) ?? null, birth_date: (row.birth_date as string | null) ?? null,
-        photo_url: (row.photo_url as string | null) ?? null, photo_position_x: Number(row.photo_position_x),
-        photo_position_y: Number(row.photo_position_y), photo_zoom: Number(row.photo_zoom),
-        age_category: String(row.age_category), owner_id: String(row.owner_id),
-        created_at: String(row.animal_created_at),
-      } : null,
-    })));
+    return json(rows.results.map(analysisFromJoined));
+  }
+  const detailMatch = path.match(/^\/v1\/analysis\/([^/]+)$/);
+  if (detailMatch && request.method === "GET") {
+    const actor = await requireUser(request, env);
+    const analysisId = decodeURIComponent(detailMatch[1]);
+    const row = await env.DB.prepare(
+      `${ANALYSIS_SELECT} WHERE l.id = ? AND l.user_id = ?`,
+    ).bind(analysisId, actor.id).first<Record<string, unknown>>();
+    if (!row) throw new HttpError(404, `Analysis ${analysisId} not found.`);
+    return json(analysisFromJoined(row));
   }
   if (path !== "/v1/analysis/upload" || request.method !== "POST") return null;
   const { form, file } = await uploadedFile(request);

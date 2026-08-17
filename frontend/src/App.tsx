@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
 import AnalysisHistoryPage from "./pages/analysis/AnalysisHistoryPage";
+import AnalysisDetailPage from "./pages/analysis/AnalysisDetailPage";
 import AnalyzePage from "./pages/analysis/AnalyzePage";
 import LoginPage from "./pages/auth/LoginPage";
 import ProfilePage from "./pages/auth/ProfilePage";
@@ -20,6 +21,8 @@ import PostDetailPage from "./pages/community/PostDetailPage";
 import VetsPage from "./pages/community/VetsPage";
 import PetDetailPage from "./pages/pets/PetDetailPage";
 import PetsPage from "./pages/pets/PetsPage";
+import SymptomCheckHistoryPage from "./pages/triage/SymptomCheckHistoryPage";
+import SymptomCheckPage from "./pages/triage/SymptomCheckPage";
 
 /*
  * Route registry — one route per page, stub pages included, so every member's
@@ -29,7 +32,7 @@ import PetsPage from "./pages/pets/PetsPage";
  * Ownership:
  *   Member 2 — /login /signup /profile /settings
  *   Member 3 — /pets /pets/:petId
- *   Member 4 — /analyze /analysis/history
+ *   Member 4 — /analyze /analysis/history /symptom-check
  *   Member 5 — /community /community/new /community/:postId /vets
  *   Shared    — /admin/verifications (vet credential review, admins only)
  */
@@ -87,11 +90,30 @@ export default function App() {
                   </RequireAuth>
                 }
               />
+              {/* Advice needs no photo and no account — deliberately public.
+                  Saving it does need an account, so the history is gated. */}
+              <Route path="/symptom-check" element={<SymptomCheckPage />} />
+              <Route
+                path="/symptom-check/history"
+                element={
+                  <RequireAuth>
+                    <SymptomCheckHistoryPage />
+                  </RequireAuth>
+                }
+              />
               <Route
                 path="/analysis/history"
                 element={
                   <RequireAuth>
                     <AnalysisHistoryPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/analysis/:analysisId"
+                element={
+                  <RequireAuth>
+                    <AnalysisDetailPage />
                   </RequireAuth>
                 }
               />

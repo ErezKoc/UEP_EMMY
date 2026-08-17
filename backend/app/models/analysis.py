@@ -36,6 +36,12 @@ class AIAnalysisLog(Base):
     # Full structured payload returned by the analysis service, kept verbatim
     # so results remain reproducible after the mock is swapped for Rekognition.
     result: Mapped[dict[str, Any]] = mapped_column(PortableJSON)
+    # Symptom triage, when the owner answered the intake questions. Stored
+    # verbatim so a past verdict stays reproducible after the rules change,
+    # and indexed by level so the vet queue can sort by urgency later.
+    intake: Mapped[dict[str, Any] | None] = mapped_column(PortableJSON)
+    triage: Mapped[dict[str, Any] | None] = mapped_column(PortableJSON)
+    triage_level: Mapped[str | None] = mapped_column(String(10), index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )

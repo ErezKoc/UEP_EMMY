@@ -3,6 +3,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.species import clean_species_label
 from app.models.animal import AgeCategory
 from app.schemas.common import UTCDateTime
 
@@ -13,6 +14,21 @@ class _BirthDateValidatorMixin(BaseModel):
     def birth_date_not_in_future(cls, value: date | None) -> date | None:
         if value is not None and value > date.today():
             raise ValueError("Birth date cannot be in the future.")
+        return value
+
+    @field_validator("species", mode="before", check_fields=False)
+    @classmethod
+    def tidy_species(cls, value: object) -> object:
+        """Store `" Cat "` as `"Cat"`.
+
+        A pet's species is copied into every triage intake for that animal, and
+        a stray space used to disable the cat-only and dog-only rules for that
+        pet permanently and invisibly. Triage normalises again when it matches
+        (see `app.core.species`), so this only has to stop the untidy value
+        being stored in the first place; the owner's capitalisation is kept.
+        """
+        if isinstance(value, str):
+            return clean_species_label(value)
         return value
 
 
