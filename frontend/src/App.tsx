@@ -1,9 +1,11 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import RequireAdmin from "./auth/RequireAdmin";
 import RequireAuth from "./auth/RequireAuth";
-import { SessionProvider } from "./auth/SessionContext";
+import { SessionProvider, useSession } from "./auth/SessionContext";
 import AppLayout from "./components/layout/AppLayout";
+import { Spinner } from "./components/ui";
 import { ToastProvider } from "./components/ui/toast";
+import ReportQueuePage from "./pages/admin/ReportQueuePage";
 import VerificationQueuePage from "./pages/admin/VerificationQueuePage";
 import Dashboard from "./pages/Dashboard";
 import Landing from "./pages/Landing";
@@ -21,8 +23,28 @@ import PostDetailPage from "./pages/community/PostDetailPage";
 import VetsPage from "./pages/community/VetsPage";
 import PetDetailPage from "./pages/pets/PetDetailPage";
 import PetsPage from "./pages/pets/PetsPage";
+import CalendarPage from "./pages/reminders/CalendarPage";
 import SymptomCheckHistoryPage from "./pages/triage/SymptomCheckHistoryPage";
 import SymptomCheckPage from "./pages/triage/SymptomCheckPage";
+
+/**
+ * "/" is the public promotional page, but only for visitors who have no
+ * session: once signed in there is a real dashboard to show instead, so the
+ * marketing page is never the destination.
+ */
+function LandingOrDashboard() {
+  const { user, initializing } = useSession();
+  // Wait for the stored token to resolve: rendering the marketing page first
+  // would flash it at a signed-in member every time they reload "/".
+  if (initializing) {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner />
+      </div>
+    );
+  }
+  return user ? <Navigate to="/dashboard" replace /> : <Landing />;
+}
 
 /*
  * Route registry — one route per page, stub pages included, so every member's
@@ -35,6 +57,7 @@ import SymptomCheckPage from "./pages/triage/SymptomCheckPage";
  *   Member 4 — /analyze /analysis/history /symptom-check
  *   Member 5 — /community /community/new /community/:postId /vets
  *   Shared    — /admin/verifications (vet credential review, admins only)
+ *   Shared    — /admin/reports (community report review, admins only)
  */
 export default function App() {
   return (
@@ -43,8 +66,15 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route element={<AppLayout />}>
-              <Route path="/" element={<Landing />} />
-              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/" element={<LandingOrDashboard />} />
+              <Route
+                path="/dashboard"
+                element={
+                  <RequireAuth>
+                    <Dashboard />
+                  </RequireAuth>
+                }
+              />
 
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
@@ -78,6 +108,15 @@ export default function App() {
                 element={
                   <RequireAuth>
                     <PetDetailPage />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
+                path="/calendar"
+                element={
+                  <RequireAuth>
+                    <CalendarPage />
                   </RequireAuth>
                 }
               />
@@ -135,6 +174,14 @@ export default function App() {
                 element={
                   <RequireAdmin>
                     <VerificationQueuePage />
+                  </RequireAdmin>
+                }
+              />
+              <Route
+                path="/admin/reports"
+                element={
+                  <RequireAdmin>
+                    <ReportQueuePage />
                   </RequireAdmin>
                 }
               />

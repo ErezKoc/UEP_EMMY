@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.security import hash_password, verify_password
 from app.db.session import get_db
 from app.models import User
-from app.schemas import PasswordChange, UserRead, UserUpdate
+from app.schemas import CurrentUserRead, PasswordChange, UserUpdate
 from app.services.storage import StorageService, get_storage_service
 
 router = APIRouter()
@@ -15,7 +15,7 @@ router = APIRouter()
 _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
-@router.patch("/me", response_model=UserRead)
+@router.patch("/me", response_model=CurrentUserRead)
 def update_profile(
     payload: UserUpdate,
     db: Session = Depends(get_db),
@@ -59,7 +59,7 @@ def change_password(
     db.commit()
 
 
-@router.post("/me/avatar", response_model=UserRead)
+@router.post("/me/avatar", response_model=CurrentUserRead)
 async def upload_avatar(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),

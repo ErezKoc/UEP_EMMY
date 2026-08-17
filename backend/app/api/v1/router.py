@@ -3,8 +3,11 @@ from fastapi import APIRouter
 from app.api.v1 import (
     analysis,
     animals,
+    assistant,
     auth,
     posts,
+    reminders,
+    reports,
     symptom_checks,
     triage,
     users,
@@ -23,4 +26,7 @@ api_router.include_router(
 api_router.include_router(analysis.router, prefix="/analysis", tags=["analysis"])
 api_router.include_router(posts.router, prefix="/posts", tags=["posts"])
 api_router.include_router(vets.router, prefix="/vets", tags=["vets"])
+api_router.include_router(reminders.router, prefix="/reminders", tags=["reminders"])
 api_router.include_router(verification.router, prefix="/verification", tags=["verification"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])

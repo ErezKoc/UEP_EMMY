@@ -47,3 +47,27 @@ def get_current_admin(user: User = Depends(get_current_user)) -> User:
             detail="Administrator access required.",
         )
     return user
+
+
+def suspension_message(user: User) -> str:
+    """Explain a restriction to the account it applies to."""
+    if user.is_banned:
+        base = "Your account has been banned for violating the community rules."
+    elif user.suspended_until is None:
+        base = "Your account is suspended."
+    else:
+        base = f"Your account is suspended until {user.suspended_until:%d %b %Y}."
+    return f"{base} {user.moderation_note}" if user.moderation_note else base
+
+
+def get_active_user(user: User = Depends(get_current_user)) -> User:
+    """Routes that write to the community.
+
+    Reading stays open to suspended and banned accounts so they can still see
+    the platform and the reason for the restriction; only participation stops.
+    """
+    if not user.can_participate:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=suspension_message(user)
+        )
+    return user

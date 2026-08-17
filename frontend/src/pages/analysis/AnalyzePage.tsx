@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { getAnimals } from "../../api/client";
+import { createAnimal, getAnimals } from "../../api/client";
 import AnalysisCard from "../../components/AnalysisCard";
 import ImageUpload from "../../components/ImageUpload";
-import { Button, Card, HistoryIcon, Select } from "../../components/ui";
+import { Button, Card, HistoryIcon, Select, useToast } from "../../components/ui";
 import { capitalize, formatPercent } from "../../lib/format";
 import type { AnalysisResponse, Animal, PostPrefill } from "../../types";
+import ProductRecommendationSection from "../../features/recommendations/components/ProductRecommendationSection";
 
 const NO_PET = "";
 
@@ -38,6 +39,8 @@ export default function AnalyzePage() {
   const [pets, setPets] = useState<Animal[]>([]);
   const [selectedPetId, setSelectedPetId] = useState(preselectedPet);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
+  const [addingPet, setAddingPet] = useState(false);
+  const { toast } = useToast();
   // Bumping the key remounts ImageUpload, clearing its preview ("analyze another").
   const [uploadKey, setUploadKey] = useState(0);
 
@@ -72,6 +75,26 @@ export default function AnalyzePage() {
   const handleShare = () => {
     if (!analysis) return;
     navigate("/community/new", { state: { prefill: buildPrefill(analysis, linkedPet) } });
+  };
+
+  const handleAddPet = async () => {
+    if (!analysis) return;
+    setAddingPet(true);
+    try {
+      const topBreed = analysis.result.breed_candidates[0]?.breed || null;
+      const newPet = await createAnimal({
+        name: "Analyzed Pet",
+        species: analysis.result.species,
+        breed: topBreed,
+        age_category: analysis.result.age_estimate.category,
+      });
+      toast("Pet added to your profile.", "success");
+      navigate(`/pets/${newPet.id}`);
+    } catch (err) {
+      toast("Failed to add pet.", "error");
+    } finally {
+      setAddingPet(false);
+    }
   };
 
   return (
@@ -127,6 +150,8 @@ export default function AnalyzePage() {
         <>
           <AnalysisCard analysis={analysis} />
 
+          <ProductRecommendationSection analysis={analysis} />
+
           <Card>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-slate-500">
@@ -135,6 +160,11 @@ export default function AnalyzePage() {
                   : "Saved to your analysis history (not linked to a pet)."}
               </p>
               <div className="flex flex-wrap gap-2">
+                {!linkedPet && (
+                  <Button variant="secondary" onClick={handleAddPet} loading={addingPet}>
+                    Add to my pets
+                  </Button>
+                )}
                 <Button variant="secondary" onClick={handleReset}>
                   Analyze another photo
                 </Button>

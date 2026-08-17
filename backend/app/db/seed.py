@@ -15,7 +15,11 @@ from app.models import (
     Animal,
     Comment,
     Post,
+    ReportReason,
+    ReportStatus,
+    ReportTargetType,
     User,
+    UserReport,
     UserRole,
     VerificationStatus,
 )
@@ -89,7 +93,18 @@ def seed_demo_data(db: Session) -> None:
         ),
         author_id=vet.id,
     )
-    db.add_all([post_food, post_checkup])
+    # Written by the *unverified* veterinarian and deliberately reportable, so
+    # the moderation queue has something realistic to review out of the box.
+    post_dosing = Post(
+        title="Just give your dog human painkillers, it is the same molecule",
+        content=(
+            "Honestly you do not need a clinic visit for limping. Take whatever "
+            "ibuprofen you have at home and give half a tablet, works every time. "
+            "Trust me, I am a vet and I do this with all my patients."
+        ),
+        author_id=pending_vet.id,
+    )
+    db.add_all([post_food, post_checkup, post_dosing])
     db.flush()
 
     db.add(
@@ -101,6 +116,25 @@ def seed_demo_data(db: Session) -> None:
                 "guide. Stick close to the feeding table for his target weight and "
                 "use his body condition score, not his enthusiasm, to adjust."
             ),
+        )
+    )
+
+    db.add(
+        UserReport(
+            reporter_id=owner.id,
+            reported_user_id=pending_vet.id,
+            target_type=ReportTargetType.POST,
+            post_id=post_dosing.id,
+            content_snapshot=f"{post_dosing.title}\n\n{post_dosing.content}",
+            reasons=[
+                ReportReason.HARMFUL_ADVICE.value,
+                ReportReason.IMPERSONATING_VET.value,
+            ],
+            details=(
+                "Ibuprofen is toxic to dogs — this could kill someone's pet. This "
+                "account also claims to be a vet but has no verified badge."
+            ),
+            status=ReportStatus.PENDING,
         )
     )
     db.commit()

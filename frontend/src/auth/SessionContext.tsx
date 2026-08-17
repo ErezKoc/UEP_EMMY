@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import * as api from "../api/client";
-import type { SignupPayload, User } from "../types";
+import type { CurrentUser, SignupPayload } from "../types";
 
 /*
  * Session state for the whole app (Member 2).
@@ -14,20 +14,20 @@ import type { SignupPayload, User } from "../types";
 
 interface SessionContextValue {
   /** The signed-in user, or null when signed out. */
-  user: User | null;
+  user: CurrentUser | null;
   /** True while the stored token is being validated on first load. */
   initializing: boolean;
-  login: (email: string, password: string) => Promise<User>;
-  signup: (payload: SignupPayload) => Promise<User>;
+  login: (email: string, password: string) => Promise<CurrentUser>;
+  signup: (payload: SignupPayload) => Promise<CurrentUser>;
   logout: () => void;
   /** Merge freshly saved profile data into the session (e.g. after PATCH). */
-  setUser: (user: User) => void;
+  setUser: (user: CurrentUser) => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [user, setUserState] = useState<User | null>(null);
+  const [user, setUserState] = useState<CurrentUser | null>(null);
   const [initializing, setInitializing] = useState(() => api.getStoredToken() !== null);
 
   useEffect(() => {
@@ -51,14 +51,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (email: string, password: string): Promise<User> => {
+  const login = useCallback(async (email: string, password: string): Promise<CurrentUser> => {
     const { token, user: loggedIn } = await api.login(email, password);
     api.setStoredToken(token);
     setUserState(loggedIn);
     return loggedIn;
   }, []);
 
-  const signup = useCallback(async (payload: SignupPayload): Promise<User> => {
+  const signup = useCallback(async (payload: SignupPayload): Promise<CurrentUser> => {
     const { token, user: created } = await api.signup(payload);
     api.setStoredToken(token);
     setUserState(created);
@@ -70,7 +70,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUserState(null);
   }, []);
 
-  const setUser = useCallback((updated: User) => setUserState(updated), []);
+  const setUser = useCallback((updated: CurrentUser) => setUserState(updated), []);
 
   return (
     <SessionContext.Provider value={{ user, initializing, login, signup, logout, setUser }}>

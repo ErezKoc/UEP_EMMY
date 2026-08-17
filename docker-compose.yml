@@ -9,6 +9,10 @@ services:
     environment:
       - DATABASE_URL=sqlite:////data/uep_emmy.db
       - STORAGE_ROOT=/data/storage
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=llama3.2
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   frontend:

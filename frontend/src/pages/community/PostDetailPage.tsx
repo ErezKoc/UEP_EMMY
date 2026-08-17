@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, createComment, getPost } from "../../api/client";
 import { useSession } from "../../auth/SessionContext";
+import ReportButton from "../../components/ReportButton";
 import {
   ArrowLeftIcon,
   Avatar,
@@ -85,6 +86,12 @@ export default function PostDetailPage() {
                 <time className="text-xs text-slate-400" dateTime={post.created_at}>{formatRelativeTime(post.created_at)}</time>
               </div>
               <RoleBadge user={post.author} />
+              <div className="ml-auto">
+                <ReportButton
+                  authorId={post.author.id}
+                  target={{ type: "post", id: post.id, authorName: post.author.display_name }}
+                />
+              </div>
             </header>
             <h1 className="mt-5 text-2xl font-bold text-slate-800">{post.title}</h1>
             <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{post.content}</p>
@@ -112,6 +119,12 @@ export default function PostDetailPage() {
                     <time className="sm:ml-auto text-xs text-slate-400" dateTime={item.created_at}>{formatRelativeTime(item.created_at)}</time>
                   </header>
                   <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-slate-700">{item.content}</p>
+                  <div className="mt-2 flex justify-end">
+                    <ReportButton
+                      authorId={item.author.id}
+                      target={{ type: "comment", id: item.id, authorName: item.author.display_name }}
+                    />
+                  </div>
                 </article>
               ))}
             </div>

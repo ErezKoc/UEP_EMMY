@@ -60,6 +60,13 @@ def ensure_compatibility_columns() -> None:
             "ALTER TABLE users ADD COLUMN verification_status VARCHAR(10) "
             "NOT NULL DEFAULT 'unverified'"
         ),
+        # Community moderation (reports → suspend/ban).
+        "account_status": (
+            "ALTER TABLE users ADD COLUMN account_status VARCHAR(9) "
+            "NOT NULL DEFAULT 'active'"
+        ),
+        "suspended_until": "ALTER TABLE users ADD COLUMN suspended_until TIMESTAMP",
+        "moderation_note": "ALTER TABLE users ADD COLUMN moderation_note VARCHAR(1000)",
     }
     missing = [
         statement

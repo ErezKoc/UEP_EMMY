@@ -190,3 +190,32 @@ export function ChevronRightIcon(props: IconProps) {
     </IconBase>
   );
 }
+
+export function FlagIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1Z" />
+      <path d="M4 22v-7" />
+    </IconBase>
+  );
+}
+
+export function BanIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m5.6 5.6 12.8 12.8" />
+    </IconBase>
+  );
+}
+
+export function GavelIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m14 13-7 7" />
+      <path d="M11.5 7.5 16 3l5 5-4.5 4.5Z" />
+      <path d="m9.5 9.5 5 5" />
+      <path d="M3 21h8" />
+    </IconBase>
+  );
+}

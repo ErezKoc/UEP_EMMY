@@ -7,6 +7,9 @@ export type VerificationStatus = "unverified" | "pending" | "verified" | "reject
 
 export type AgeCategory = "baby" | "young" | "adult" | "senior" | "unknown";
 
+/** Moderation state of an account, set by an admin when deciding a report. */
+export type AccountStatus = "active" | "suspended" | "banned";
+
 export interface User {
   id: string;
   email: string;
@@ -19,7 +22,20 @@ export interface User {
   verification_status: VerificationStatus;
   /** True only for veterinarians an admin approved. Drives the trusted badge. */
   is_verified_vet: boolean;
+  account_status: AccountStatus;
   created_at: string;
+}
+
+/**
+ * The signed-in user's own account. The suspension deadline and the moderator's
+ * note are only ever returned to the account they concern, never on a public
+ * author profile — so they live here rather than on `User`.
+ */
+export interface CurrentUser extends User {
+  suspended_until: string | null;
+  moderation_note: string | null;
+  /** False while suspended or banned: posting, commenting and reporting are off. */
+  can_participate: boolean;
 }
 
 export interface SignupPayload {
@@ -55,7 +71,72 @@ export interface ProfileUpdatePayload {
 
 export interface AuthResponse {
   token: string;
-  user: User;
+  user: CurrentUser;
+}
+
+// ------------------------------------------------------- community reporting
+
+/** Checklist a reporter ticks; at least one is required per report. */
+export type ReportReason =
+  | "offensive_language"
+  | "harassment"
+  | "spam"
+  | "impersonating_vet"
+  | "harmful_advice"
+  | "animal_welfare"
+  | "graphic_content"
+  | "other";
+
+export type ReportTargetType = "post" | "comment" | "user";
+
+export type ReportStatus = "pending" | "dismissed" | "actioned";
+
+export type ModerationAction = "suspend" | "ban" | "reinstate";
+
+/** Compact identity used in moderation views. */
+export interface UserSummary {
+  id: string;
+  display_name: string;
+  role: UserRole;
+  avatar_url: string | null;
+  is_verified_vet: boolean;
+}
+
+/** A reported member, with the account state an admin needs to decide. */
+export interface ReportedUser extends UserSummary {
+  email: string;
+  clinic_name: string | null;
+  license_number: string | null;
+  verification_status: VerificationStatus;
+  account_status: AccountStatus;
+  suspended_until: string | null;
+  created_at: string;
+}
+
+export interface UserReport {
+  id: string;
+  target_type: ReportTargetType;
+  post_id: string | null;
+  comment_id: string | null;
+  /** The reported text as it read when reported, kept if the author edits it. */
+  content_snapshot: string | null;
+  reasons: ReportReason[];
+  details: string | null;
+  status: ReportStatus;
+  action_taken: ModerationAction | null;
+  review_note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  reviewed_by_name: string | null;
+  reporter: UserSummary;
+  reported_user: ReportedUser;
+}
+
+export interface ReportPayload {
+  target_type: ReportTargetType;
+  target_id: string;
+  reasons: ReportReason[];
+  details?: string | null;
 }
 
 export interface Animal {
@@ -78,9 +159,35 @@ export interface AnimalPayload {
   species: string;
   breed?: string | null;
   birth_date?: string | null;
+  age_category?: AgeCategory | null;
   photo_position_x?: number;
   photo_position_y?: number;
   photo_zoom?: number;
+}
+
+export type ReminderType = "vaccine" | "checkup" | "other";
+export type ReminderRecurrence = "none" | "monthly" | "yearly";
+
+export interface Reminder {
+  id: string;
+  title: string;
+  reminder_type: ReminderType;
+  due_date: string;
+  recurrence: ReminderRecurrence;
+  notes: string | null;
+  animal_id: string;
+  owner_id: string;
+  created_at: string;
+  animal: Animal;
+}
+
+export interface ReminderPayload {
+  title: string;
+  reminder_type: ReminderType;
+  due_date: string;
+  recurrence: ReminderRecurrence;
+  notes?: string | null;
+  animal_id: string;
 }
 
 export interface BreedCandidate {
@@ -308,3 +415,33 @@ export interface Comment {
 export interface PostDetail extends Post {
   comments: Comment[];
 }
+
+// ------------------------------------------------------------- AI Assistant
+
+export type AssistantActionType =
+  | "create_reminder"
+  | "delete_reminder"
+  | "create_pet"
+  | "delete_pet"
+  | "update_pet"
+  | "navigate"
+  | "create_post"
+  | "search_vets"
+  | "submit_verification"
+  | "query_pets"
+  | "general_reply";
+
+export interface AssistantAction {
+  action_type: AssistantActionType;
+  summary: string;
+  params: Record<string, any>;
+  nav_target: string | null;
+}
+
+export interface AssistantProcessResponse {
+  transcript: string;
+  response_text: string;
+  action: AssistantAction;
+  execution_result: Record<string, any> | null;
+}
+

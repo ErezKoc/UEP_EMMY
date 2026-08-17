@@ -4,15 +4,21 @@ import type {
   AnalysisResponse,
   Animal,
   AnimalPayload,
+  AssistantProcessResponse,
   AuthResponse,
+  CurrentUser,
   Post,
   PostDetail,
   ProfileUpdatePayload,
+  Reminder,
+  ReminderPayload,
+  ReportPayload,
+  ReportStatus,
   SignupPayload,
   SymptomCheck,
   SymptomIntake,
   TriageAssessment,
-  User,
+  UserReport,
   UserRole,
   VerificationStatus,
   Veterinarian,
@@ -127,13 +133,13 @@ export function login(email: string, password: string): Promise<AuthResponse> {
 }
 
 /** Restore the session for the stored token (401 → token invalid/expired). */
-export async function fetchCurrentUser(): Promise<User> {
+export async function fetchCurrentUser(): Promise<CurrentUser> {
   const response = await apiFetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
-  return parseResponse<User>(response);
+  return parseResponse<CurrentUser>(response);
 }
 
-export function updateProfile(payload: ProfileUpdatePayload): Promise<User> {
-  return requestJson<User>("/users/me", "PATCH", payload);
+export function updateProfile(payload: ProfileUpdatePayload): Promise<CurrentUser> {
+  return requestJson<CurrentUser>("/users/me", "PATCH", payload);
 }
 
 export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
@@ -143,7 +149,7 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
   });
 }
 
-export async function uploadAvatar(file: File): Promise<User> {
+export async function uploadAvatar(file: File): Promise<CurrentUser> {
   const formData = new FormData();
   formData.append("file", file);
   const response = await apiFetch(
@@ -151,7 +157,7 @@ export async function uploadAvatar(file: File): Promise<User> {
     { method: "POST", headers: authHeaders(), body: formData },
     UPLOAD_TIMEOUT_MS,
   );
-  return parseResponse<User>(response);
+  return parseResponse<CurrentUser>(response);
 }
 
 // --------------------------------------------------------------------- pets
@@ -176,6 +182,26 @@ export function updateAnimal(animalId: string, payload: Partial<AnimalPayload>):
 
 export function deleteAnimal(animalId: string): Promise<void> {
   return requestJson<void>(`/animals/${animalId}`, "DELETE");
+}
+
+// --------------------------------------------------------------- reminders
+
+export async function getReminders(animalId?: string): Promise<Reminder[]> {
+  const suffix = animalId ? `?animal_id=${encodeURIComponent(animalId)}` : "";
+  const response = await fetch(`${API_BASE}/reminders${suffix}`, { headers: authHeaders() });
+  return parseResponse<Reminder[]>(response);
+}
+
+export function createReminder(payload: ReminderPayload): Promise<Reminder> {
+  return requestJson<Reminder>("/reminders", "POST", payload);
+}
+
+export function updateReminder(id: string, payload: Partial<ReminderPayload>): Promise<Reminder> {
+  return requestJson<Reminder>(`/reminders/${id}`, "PATCH", payload);
+}
+
+export function deleteReminder(id: string): Promise<void> {
+  return requestJson<void>(`/reminders/${id}`, "DELETE");
 }
 
 export async function uploadAnimalPhoto(animalId: string, file: File): Promise<Animal> {
@@ -273,6 +299,49 @@ export function decideVerification(
   });
 }
 
+// ------------------------------------------------- reporting & moderation
+
+/** Report a post, comment, or profile for administrator review. */
+export function createReport(payload: ReportPayload): Promise<UserReport> {
+  return requestJson<UserReport>("/reports", "POST", payload);
+}
+
+/** Reports the signed-in user has filed, newest first. */
+export async function getMyReports(): Promise<UserReport[]> {
+  const response = await fetch(`${API_BASE}/reports/me`, { headers: authHeaders() });
+  return parseResponse<UserReport[]>(response);
+}
+
+/** Admin moderation queue, oldest first; pass a status to filter. */
+export async function getReports(status?: ReportStatus): Promise<UserReport[]> {
+  const suffix = status ? `?status=${status}` : "";
+  const response = await fetch(`${API_BASE}/reports${suffix}`, { headers: authHeaders() });
+  return parseResponse<UserReport[]>(response);
+}
+
+export interface ReportDecisionPayload {
+  /** "Reviewed, nothing wrong here" — mutually exclusive with `action`. */
+  dismiss?: boolean;
+  action?: import("../types").ModerationAction;
+  /** Required for `suspend`: how long the restriction lasts. */
+  suspend_days?: number;
+  /** Required for every action; optional when dismissing. */
+  review_note?: string;
+}
+
+/** Admin decision: dismiss the report, or suspend/ban/reinstate the account. */
+export function decideReport(
+  reportId: string,
+  payload: ReportDecisionPayload,
+): Promise<UserReport> {
+  return requestJson<UserReport>(`/reports/${reportId}`, "PATCH", {
+    dismiss: payload.dismiss ?? false,
+    action: payload.action ?? null,
+    suspend_days: payload.suspend_days ?? null,
+    review_note: payload.review_note?.trim() || null,
+  });
+}
+
 // ----------------------------------------------------------------- analysis
 
 export async function uploadForAnalysis(
@@ -342,4 +411,26 @@ export async function getAnalyses(animalId?: string | null): Promise<AnalysisHis
 export async function getAnalysis(analysisId: string): Promise<AnalysisDetail> {
   const response = await apiFetch(`${API_BASE}/analysis/${analysisId}`, { headers: authHeaders() });
   return parseResponse<AnalysisDetail>(response);
+}
+
+// ------------------------------------------------------------- AI Assistant
+
+export async function processAssistantCommand(
+  audioBlob?: Blob | null,
+  text?: string | null,
+): Promise<AssistantProcessResponse> {
+  const formData = new FormData();
+  if (audioBlob) {
+    formData.append("file", audioBlob, "recording.webm");
+  }
+  if (text?.trim()) {
+    formData.append("text", text.trim());
+  }
+
+  const response = await fetch(`${API_BASE}/assistant/process`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+  return parseResponse<AssistantProcessResponse>(response);
 }

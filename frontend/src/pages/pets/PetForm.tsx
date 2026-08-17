@@ -17,6 +17,14 @@ const SPECIES_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
+const AGE_CATEGORY_OPTIONS = [
+  { value: "unknown", label: "Unknown" },
+  { value: "baby", label: "Baby (Puppy/Kitten)" },
+  { value: "young", label: "Young" },
+  { value: "adult", label: "Adult" },
+  { value: "senior", label: "Senior" },
+];
+
 const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
@@ -39,6 +47,9 @@ export default function PetForm({ initial, submitLabel, onSubmit, onCancel }: Pe
   );
   const [breed, setBreed] = useState(initial?.breed ?? "");
   const [birthDate, setBirthDate] = useState(initial?.birth_date ?? "");
+  const [ageCategory, setAgeCategory] = useState<import("../../types").AgeCategory>(
+    initial?.age_category ?? "unknown",
+  );
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -91,6 +102,7 @@ export default function PetForm({ initial, submitLabel, onSubmit, onCancel }: Pe
           species: species === "other" ? customSpecies.trim() || "other" : species,
           breed: breed.trim() || null,
           birth_date: birthDate || null,
+          age_category: ageCategory,
         },
         photo ?? undefined,
       );
@@ -140,7 +152,14 @@ export default function PetForm({ initial, submitLabel, onSubmit, onCancel }: Pe
         value={birthDate}
         onChange={(event) => setBirthDate(event.target.value)}
         max={today}
-        hint="Optional — used to show your pet's age."
+        hint="Optional — used to show your pet's exact age if known."
+      />
+      <Select
+        label="Age Category"
+        value={ageCategory}
+        onChange={(event) => setAgeCategory(event.target.value as import("../../types").AgeCategory)}
+        options={AGE_CATEGORY_OPTIONS}
+        hint="Used if birth date is unknown."
       />
 
       {!initial && (
