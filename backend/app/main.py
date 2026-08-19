@@ -158,6 +158,9 @@ app.mount("/media", StaticFiles(directory=media_dir), name="media")
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
+from app.api.recommendations import router as recommendations_router
+app.include_router(recommendations_router, prefix=f"{settings.api_v1_prefix}")
+
 
 @app.get("/healthz", tags=["health"])
 def health_check() -> dict[str, str]:
