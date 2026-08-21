@@ -26,6 +26,7 @@ import PetsPage from "./pages/pets/PetsPage";
 import CalendarPage from "./pages/reminders/CalendarPage";
 import SymptomCheckHistoryPage from "./pages/triage/SymptomCheckHistoryPage";
 import SymptomCheckPage from "./pages/triage/SymptomCheckPage";
+import NewOwnerGuidePage from "./pages/guide/NewOwnerGuidePage";
 
 /**
  * "/" is the public promotional page, but only for visitors who have no
@@ -78,6 +79,7 @@ export default function App() {
 
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              <Route path="/new-owner-guide" element={<NewOwnerGuidePage />} />
               <Route
                 path="/profile"
                 element={
