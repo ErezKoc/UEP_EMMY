@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Product } from '../types';
 
-export function useProductRecommendations(species: string | null | undefined, breed?: string) {
+export function useProductRecommendations(species: string | null | undefined, _breed?: string) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

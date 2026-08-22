@@ -1,0 +1,2 @@
+# Dependencies used by the product recommendation service.
+pandas>=2.2,<3.0
