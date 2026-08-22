@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: "/symptom-check", label: "Symptom checker" },
   { to: "/pets", label: "My Pets" },
   { to: "/calendar", label: "Calendar" },
+  { to: "/new-owner-guide", label: "Owner Guide" },
   { to: "/community", label: "Community" },
   { to: "/vets", label: "Vets" },
 ];

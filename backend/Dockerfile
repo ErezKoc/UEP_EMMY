@@ -7,7 +7,16 @@ WORKDIR /app
 
 # Install dependencies first for better caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Whisper needs PyTorch, but this container runs inference on CPU. Installing
+# the official CPU wheel first prevents pip from pulling several gigabytes of
+# unused NVIDIA/CUDA runtime packages.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
+
+# Keep recommendation dependencies in a separate layer so adding one does not
+# invalidate the much larger Whisper/PyTorch installation above.
+COPY requirements-recsys.txt .
+RUN pip install --no-cache-dir -r requirements-recsys.txt
 
 # Copy the rest of the application
 COPY . .

@@ -1,56 +1,54 @@
 import { useState, useEffect } from 'react';
-import { Product, SpeciesType } from '../types';
-import { MOCK_PRODUCT_DB } from '../api/mockData';
+import { Product } from '../types';
 
-export function useProductRecommendations(species: string | null | undefined, breed?: string) {
+export function useProductRecommendations(species: string | null | undefined, _breed?: string) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+    
+    // We only care about species now as per your request!
+    if (!species) {
+      setProducts([]);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
-    // Simulate network delay
-    const timer = setTimeout(() => {
-      if (!isMounted) return;
-
+    const fetchRecommendations = async () => {
       try {
-        if (!species) {
-          setProducts([]);
+        // Fetch real recommendations from our FastAPI backend!
+        const response = await fetch(`/v1/recommendations/pet?species=${encodeURIComponent(species)}&limit=6`);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch recommendations: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (isMounted) {
+          setProducts(data);
           setIsLoading(false);
-          return;
         }
-
-        const normalizedSpecies = species.toLowerCase();
-        let fetchedProducts: Product[] = [];
-
-        if (normalizedSpecies === 'cat' || normalizedSpecies === 'dog') {
-          const speciesKey = normalizedSpecies as SpeciesType;
-          fetchedProducts = MOCK_PRODUCT_DB[speciesKey]?.breeds?.[breed || ''] 
-            || MOCK_PRODUCT_DB[speciesKey]?.default 
-            || MOCK_PRODUCT_DB.fallback;
-        } else {
-          fetchedProducts = MOCK_PRODUCT_DB.fallback;
-        }
-
-        setProducts(fetchedProducts);
       } catch (err) {
-        console.error('Error fetching recommendations', err);
-        setError('Failed to load recommendations.');
-      } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          console.error('Error fetching recommendations from API:', err);
+          setError('Failed to load recommendations.');
+          setIsLoading(false);
+        }
       }
-    }, 800); // 800ms mock delay
+    };
+
+    fetchRecommendations();
 
     return () => {
       isMounted = false;
-      clearTimeout(timer);
     };
-  }, [species, breed]);
-
-
+  }, [species]); // Removing breed dependency since we are just basing it on species
 
   return {
     products,
