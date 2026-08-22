@@ -25,6 +25,26 @@ const colors = {
   other: "bg-amber-100 text-amber-800",
 } as const;
 
+const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+function isOverdue(reminder: Reminder) {
+  return reminder.recurrence === "none" && new Date(`${reminder.due_date}T00:00:00`) < startOfToday;
+}
+
+function nextOccurrence(reminder: Reminder): Date | null {
+  const due = new Date(`${reminder.due_date}T00:00:00`);
+  if (reminder.recurrence === "none") return due >= startOfToday ? due : null;
+  const next = new Date(due);
+  if (reminder.recurrence === "monthly") {
+    next.setFullYear(startOfToday.getFullYear(), startOfToday.getMonth(), due.getDate());
+    if (next < startOfToday) next.setMonth(next.getMonth() + 1);
+  } else {
+    next.setFullYear(startOfToday.getFullYear());
+    if (next < startOfToday) next.setFullYear(next.getFullYear() + 1);
+  }
+  return next;
+}
+
 function isoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -99,6 +119,13 @@ export default function CalendarPage() {
     });
   }, [month]);
   const visible = filter ? reminders.filter((item) => item.animal_id === filter) : reminders;
+  const overdueCount = visible.filter(isOverdue).length;
+  const nextThirtyDays = new Date(startOfToday);
+  nextThirtyDays.setDate(nextThirtyDays.getDate() + 30);
+  const upcomingCount = visible.filter((item) => {
+    const occurrence = nextOccurrence(item);
+    return occurrence !== null && occurrence <= nextThirtyDays;
+  }).length;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -150,12 +177,35 @@ export default function CalendarPage() {
         {error && <p className="text-sm text-rose-600 md:col-span-3">{error}</p>}
       </form>
 
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-primary-100 bg-primary-50 p-4">
+          <p className="text-sm font-medium text-primary-700">Due in the next 30 days</p>
+          <p className="mt-1 text-2xl font-bold text-primary-900">{upcomingCount}</p>
+        </div>
+        <div className={`rounded-xl border p-4 ${overdueCount > 0 ? "border-rose-200 bg-rose-50" : "border-slate-200 bg-white"}`}>
+          <p className={`text-sm font-medium ${overdueCount > 0 ? "text-rose-700" : "text-slate-600"}`}>Overdue reminders</p>
+          <p className={`mt-1 text-2xl font-bold ${overdueCount > 0 ? "text-rose-800" : "text-slate-800"}`}>{overdueCount}</p>
+        </div>
+      </div>
+
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="rounded-lg border px-3 py-2" aria-label="Previous month">←</button>
           <h2 className="min-w-48 text-center text-lg font-bold">{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2>
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="rounded-lg border px-3 py-2" aria-label="Next month">→</button>
+          <button
+            type="button"
+            onClick={() => setMonth(new Date(today.getFullYear(), today.getMonth(), 1))}
+            disabled={month.getFullYear() === today.getFullYear() && month.getMonth() === today.getMonth()}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-default disabled:opacity-40"
+          >
+            Today
+          </button>
           <select aria-label="Filter by pet" value={filter} onChange={(e) => setFilter(e.target.value)} className="ml-auto rounded-lg border border-slate-300 px-3 py-2"><option value="">All pets</option>{animals.map((pet) => <option key={pet.id} value={pet.id}>{pet.name}</option>)}</select>
+        </div>
+        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-600" aria-label="Reminder color legend">
+          {(["vaccine", "checkup", "other"] as const).map((type) => <span key={type} className="inline-flex items-center gap-1.5"><span className={`h-2.5 w-2.5 rounded-full ${type === "vaccine" ? "bg-emerald-500" : type === "checkup" ? "bg-sky-500" : "bg-amber-500"}`} />{labels[type]}</span>)}
+          <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" />Overdue</span>
         </div>
         <div className="grid grid-cols-7 text-center text-xs font-semibold uppercase text-slate-500">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <div key={day} className="py-2">{day}</div>)}</div>
         <div className="grid grid-cols-7 border-l border-t border-slate-200">
@@ -172,8 +222,8 @@ export default function CalendarPage() {
 
       <section className="space-y-3">
         <h2 className="text-xl font-bold">Saved reminders</h2>
-        {visible.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center">
-          <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${colors[item.reminder_type]}`}>{labels[item.reminder_type]}</span><strong className="truncate">{item.title}</strong></div><p className="mt-1 text-sm text-slate-600">{item.animal.name} · {item.due_date}{item.recurrence !== "none" ? ` · ${item.recurrence}` : ""}</p></div>
+        {visible.map((item) => <article key={item.id} className={`flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center ${isOverdue(item) ? "border-rose-200" : "border-slate-200"}`}>
+          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${colors[item.reminder_type]}`}>{labels[item.reminder_type]}</span>{isOverdue(item) && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Overdue</span>}<strong className="truncate">{item.title}</strong></div><p className={`mt-1 text-sm ${isOverdue(item) ? "font-medium text-rose-700" : "text-slate-600"}`}>{item.animal.name} · {item.due_date}{item.recurrence !== "none" ? ` · ${item.recurrence}` : ""}</p></div>
           <div className="flex flex-wrap gap-2 text-sm"><a target="_blank" rel="noreferrer" href={googleCalendarUrl(item)} className="rounded-lg border px-3 py-2">Google Calendar</a><button onClick={() => downloadIcs(item)} className="rounded-lg border px-3 py-2">Download .ics</button><button onClick={() => edit(item)} className="rounded-lg border px-3 py-2">Edit</button><button onClick={async () => { if (window.confirm("Delete this reminder?")) { await deleteReminder(item.id); await load(); } }} className="rounded-lg border border-rose-200 px-3 py-2 text-rose-700">Delete</button></div>
         </article>)}
         {visible.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-500">No reminders yet.</p>}
