@@ -1,7 +1,9 @@
 """The evidence ledger — what each source was independently read to say.
 
-Every URL below was fetched and read during the audit on 2026-08-16, separately
-from whatever `app/services/triage/sources.py` claims. Each `Finding` records:
+Every URL below was fetched and read during an audit sweep, separately from
+whatever `app/services/triage/sources.py` claims. The first sweep ran on
+2026-08-16; the dermatology pages at the end of this file were read on
+2026-08-18, when the skin pathway was added. Each `Finding` records:
 
 * the quoted or closely paraphrased statement the page actually makes,
 * the species the page addresses,
@@ -21,7 +23,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-AUDIT_DATE = date(2026, 8, 16)
+#: The first sweep, and the default date a finding was read on.
+FIRST_AUDIT = date(2026, 8, 16)
+#: The dermatology sweep, which added the Merck skin pages.
+DERMATOLOGY_AUDIT = date(2026, 8, 18)
+#: The urinary sweep, which read the two obstruction pages that cover dogs, and
+#: re-read Cornell's anorexia page for what it says below its own 24-hour mark.
+URINARY_AUDIT = date(2026, 8, 22)
+#: The most recent read in this ledger. Staleness and "not in the future" checks
+#: are measured from here, so adding a later sweep does not backdate the rest.
+AUDIT_DATE = URINARY_AUDIT
 
 DOG = "dog"
 CAT = "cat"
@@ -54,7 +65,7 @@ class Finding:
     species: frozenset[str] | None
     statement: str
     urgency: str
-    accessed: date = AUDIT_DATE
+    accessed: date = FIRST_AUDIT
     # Set when the audit had to reason beyond the page's literal wording to use
     # this finding at the urgency recorded above. A label resting on such a
     # finding is reported as inference-dependent rather than confirmed.
@@ -125,6 +136,56 @@ MERCK_HEATSTROKE = Finding(
 
 ASPCA_EMERGENCY_URL = "https://www.aspca.org/pet-care/general-pet-care/emergency-care-your-pet"
 
+# The page makes TWO different claims and the first reading of it ran them
+# together. Re-read 2026-08-18 after a reviewer challenged the sting rule.
+#
+#   SIGNS — "Pale gums / Rapid breathing / Weak or rapid pulse / Change in body
+#   temperature / Difficulty standing / Apparent paralysis / Loss of
+#   consciousness / Seizures / Excessive bleeding" are given as signs a pet
+#   needs emergency care.
+#
+#   CAUSES — "Your dog may need emergency care because of severe trauma —
+#   caused by an accident or fall — choking, heatstroke, an insect sting,
+#   household poisoning or other life-threatening situation." That is "MAY need
+#   emergency care BECAUSE OF", which is not the same as "this is an emergency".
+#
+# The distinction matters most for the sting: an exposure whose consequences
+# range from a weal that resolves in an hour to anaphylaxis. Reading the causes
+# sentence as though it named nine emergencies is what let a dog stung days ago,
+# with an itchy paw and nothing else, be told to call an emergency service.
+ASPCA_TRANSPORT = Finding(
+    id="aspca_emergency.transport",
+    source_name="ASPCA — Emergency Care for Your Pet",
+    url=ASPCA_EMERGENCY_URL,
+    species=DOG_AND_CAT,
+    statement=(
+        "\"Once you feel confident and safe transporting your pet, immediately bring him to an "
+        "emergency care facility.\" \"Ask a friend or family member to call the clinic so the "
+        "staff knows to expect you and your pet.\""
+    ),
+    urgency=Urgency.EMERGENCY,
+    accessed=DERMATOLOGY_AUDIT,
+)
+
+_ASPCA_SIGNS_STATEMENT = (
+    "Lists as signs a pet needs emergency care: \"Pale gums / Rapid breathing / Weak or rapid "
+    "pulse / Change in body temperature / Difficulty standing / Apparent paralysis / Loss of "
+    "consciousness / Seizures / Excessive bleeding\" — this entry: {label}."
+)
+
+_ASPCA_CAUSES_STATEMENT = (
+    "\"Your dog may need emergency care because of severe trauma — caused by an accident or "
+    "fall — choking, heatstroke, an insect sting, household poisoning or other life-threatening "
+    "situation.\" — this entry: {label}."
+)
+
+_ASPCA_CAUSES_CAVEAT = (
+    "The page frames these as causes a pet MAY need emergency care because of, not as "
+    "emergencies in themselves, and it nowhere says that an insect sting alone is "
+    "life-threatening. Escalating on the exposure rather than on the reaction is not supported "
+    "by this sentence."
+)
+
 ASPCA_LIST = tuple(
     Finding(
         id=f"aspca_emergency.{slug}",
@@ -132,24 +193,26 @@ ASPCA_LIST = tuple(
         url=ASPCA_EMERGENCY_URL,
         species=DOG_AND_CAT,
         statement=(
-            "Lists as signs a pet needs emergency care: pale gums, rapid breathing, weak or "
-            "rapid pulse, change in body temperature, difficulty standing, apparent paralysis, "
-            "loss of consciousness, seizures, excessive bleeding. Names severe trauma from an "
-            "accident or fall, choking, heatstroke, an insect sting and household poisoning as "
-            f"life-threatening situations — this entry: {label}."
-        ),
+            _ASPCA_SIGNS_STATEMENT if kind == "sign" else _ASPCA_CAUSES_STATEMENT
+        ).format(label=label),
         urgency=Urgency.EMERGENCY,
+        negative_finding="" if kind == "sign" else _ASPCA_CAUSES_CAVEAT,
     )
-    for slug, label in (
-        ("pale_gums", "pale gums"),
-        ("collapse", "difficulty standing / apparent paralysis / loss of consciousness"),
-        ("seizure", "seizures"),
-        ("bleeding", "excessive bleeding"),
-        ("trauma", "severe trauma caused by an accident or fall"),
-        ("choking", "choking"),
-        ("sting", "an insect sting"),
-        ("poisoning", "household poisoning"),
-        ("heatstroke", "heatstroke"),
+    for slug, label, kind in (
+        ("pale_gums", "pale gums", "sign"),
+        ("collapse", "difficulty standing / apparent paralysis / loss of consciousness", "sign"),
+        ("seizure", "seizures", "sign"),
+        ("bleeding", "excessive bleeding", "sign"),
+        ("trauma", "severe trauma caused by an accident or fall", "cause"),
+        ("choking", "choking", "cause"),
+        ("sting", "an insect sting", "cause"),
+        ("poisoning", "household poisoning", "cause"),
+        ("heatstroke", "heatstroke", "cause"),
+        # Appended, not inserted: `oracle.py` indexes this tuple by position.
+        # The quote recorded above has always contained "Rapid breathing"; it
+        # had no entry of its own because one combined breathing flag was
+        # attributed to Merck's "trouble breathing" instead.
+        ("rapid_breathing", "rapid breathing", "sign"),
     )
 )
 
@@ -200,20 +263,128 @@ CAT_ANOREXIA_UNDER_24H = Finding(
     statement=(
         "The page sets 24 hours as the point at which appetite loss severely affects a mature "
         "cat, and describes anorexia generally as a sign of underlying disease warranting "
-        "veterinary attention."
+        "veterinary attention. Re-read 2026-08-22 for what it says BELOW that threshold, and it "
+        "says it directly rather than by implication: \"Dr. McDaniel strongly encourages owners "
+        "to consult a veterinarian immediately upon noticing any signs of feline anorexia\", and "
+        "\"A cat that is not eating deserves to have a full veterinary workup.\" Neither "
+        "sentence is conditioned on a duration."
     ),
     urgency=Urgency.PROMPT_EXAM,
-    inference=(
-        "Reading a sub-24-hour feline anorexia case as 'needs a vet, not yet an emergency' is "
-        "the auditor's inference from the page's own threshold; the page does not state a "
-        "level for shorter durations."
-    ),
+    accessed=URINARY_AUDIT,
+    # The `inference` this finding used to carry has been removed, not
+    # downgraded. It read: "Reading a sub-24-hour feline anorexia case as
+    # 'needs a vet, not yet an emergency' is the auditor's inference from the
+    # page's own threshold; the page does not state a level for shorter
+    # durations." That was written from the 24-hour sentence alone. The page
+    # also carries the two unconditioned sentences quoted above, so the label
+    # rests on what it states, and the 22 cases that were reported as
+    # inference-dependent abstentions were never short of evidence.
 )
 
 # ---------------------------------------------------------------------------
 # ACVS — Urinary Obstruction in Male Cats. Read 2026-08-16. Real article page.
 # Publisher: American College of Veterinary Surgeons. Credible specialty body.
 # ---------------------------------------------------------------------------
+
+# Read 2026-08-18, after a reviewer pointed out that the ACVS page we were
+# citing is specifically about MALE cats and the form never asks the cat's sex.
+# This page covers cats, names males as higher risk rather than the only ones
+# affected, and states the emergency in stronger terms than the ACVS page does.
+CORNELL_LUTD = Finding(
+    id="cornell.lutd",
+    source_name="Cornell Feline Health Center - Feline Lower Urinary Tract Disease",
+    url=(
+        "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-"
+        "center/health-information/feline-health-topics/feline-lower-urinary-tract-disease"
+    ),
+    species=CAT_ONLY,
+    statement=(
+        "\"A cat experiencing a urethral obstruction usually behaves similarly to cats with LUTS "
+        "of other causes, and may strain to urinate, make frequent attempts to urinate, and "
+        "produce little, if any, urine.\" \"Urethral obstruction is a true medical emergency, and "
+        "any cat suspected of suffering from this condition must receive immediate veterinary "
+        "attention.\" \"The time from complete urinary obstruction until death may be less than "
+        "twenty-four to forty-eight hours, so immediate treatment is essential.\" \"Male and "
+        "neutered male cats are at greater risk for obstruction than females because their "
+        "urethra is longer and narrower.\" Last updated October 2016; no author named."
+    ),
+    urgency=Urgency.EMERGENCY,
+    accessed=DERMATOLOGY_AUDIT,
+)
+
+# Read 2026-08-18, after a reviewer pointed out that the ACVS page we were
+# citing is specifically about MALE cats and the form never asks the cat's sex.
+# This page covers cats, names males as higher risk rather than the only ones
+# affected, and states the emergency in stronger terms than the ACVS page does.
+CORNELL_LUTD = Finding(
+    id="cornell.lutd",
+    source_name="Cornell Feline Health Center - Feline Lower Urinary Tract Disease",
+    url=(
+        "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-"
+        "center/health-information/feline-health-topics/feline-lower-urinary-tract-disease"
+    ),
+    species=CAT_ONLY,
+    statement=(
+        "\"A cat experiencing a urethral obstruction usually behaves similarly to cats with LUTS "
+        "of other causes, and may strain to urinate, make frequent attempts to urinate, and "
+        "produce little, if any, urine.\" \"Urethral obstruction is a true medical emergency, and "
+        "any cat suspected of suffering from this condition must receive immediate veterinary "
+        "attention.\" \"The time from complete urinary obstruction until death may be less than "
+        "twenty-four to forty-eight hours, so immediate treatment is essential.\" \"Male and "
+        "neutered male cats are at greater risk for obstruction than females because their "
+        "urethra is longer and narrower.\" Last updated October 2016; no author named."
+    ),
+    urgency=Urgency.EMERGENCY,
+    accessed=DERMATOLOGY_AUDIT,
+)
+
+# ---------------------------------------------------------------------------
+# The dog side of urinary obstruction. Read 2026-08-22.
+#
+# Recorded because the ledger had no page covering a DOG that strains and
+# produces nothing: Cornell's LUTD page and the ACVS male-cat page are both
+# feline, so the auditor had no basis for any label and the engine abstained.
+# ---------------------------------------------------------------------------
+
+ACVS_OBSTRUCTION_DOGS = Finding(
+    id="acvs.urinary_obstruction_dogs",
+    source_name="American College of Veterinary Surgeons - Urinary Obstruction in Dogs",
+    url="https://www.acvs.org/small-animal/urinary-obstruction-in-dogs/",
+    species=DOG_ONLY,
+    statement=(
+        "\"Your pet should be seen by a veterinarian immediately if he/she is unable to "
+        "urinate.\" \"Dogs with total urethral obstruction will die within days if the "
+        "obstruction is not relieved.\" Partially obstructed dogs \"urinate small amounts "
+        "frequently\", \"strain to urinate\", and pass urine in drips rather than a stream; "
+        "\"if the urethra is completely blocked, your dog will strain without producing any "
+        "urine.\" The page is about dogs, and states the signs for \"he/she\" rather than "
+        "for males only, though the surgical sections it goes on to describe are male-specific."
+    ),
+    urgency=Urgency.EMERGENCY,
+    accessed=URINARY_AUDIT,
+)
+
+MERCK_URETHRAL_OBSTRUCTION = Finding(
+    id="merck.urethral_obstruction",
+    source_name="Merck Veterinary Manual - Urethral Obstruction in Small Animals",
+    url=(
+        "https://www.merckvetmanual.com/urinary-system/urolithiasis-in-small-animals"
+        "/urethral-obstruction-in-small-animals"
+    ),
+    species=DOG_AND_CAT,
+    statement=(
+        "\"UO is an emergency condition, and stabilization should be prioritized in severely "
+        "affected patients.\" \"Complete UO causes uremia within 36-48 hours, which leads to "
+        "depression, vomiting, diarrhea, dehydration, coma, and death within approximately 72 "
+        "hours.\" \"Life-threatening hyperkalemia can develop with UO and should be addressed "
+        "promptly.\" Signs include \"frequent nonproductive attempts to urinate\" and "
+        "vocalising while trying; owners \"mistake the signs of UO for constipation\". The "
+        "page covers dogs and cats, naming male cats as uniquely predisposed rather than as "
+        "the only patients affected."
+    ),
+    urgency=Urgency.EMERGENCY,
+    accessed=URINARY_AUDIT,
+)
 
 ACVS_OBSTRUCTION = Finding(
     id="acvs.urinary_obstruction",
@@ -300,9 +471,13 @@ MISSOURI_VOMITING_OVER_24H = Finding(
     ),
     urgency=Urgency.EMERGENCY,
     inference=(
-        "The intake form's shortest duration band is 'today', so any longer band is read as "
-        "exceeding 24 hours. A case reported as 'today' cannot distinguish one vomit from "
-        "profuse vomiting, so 'today' is not escalated on duration alone."
+        "RETRACTED 2026-08-18. This finding used to be read as: the intake form's shortest "
+        "duration band is 'today', so any longer band means vomiting exceeding 24 hours, which "
+        "satisfies the clause. A reviewer pointed out that Missouri's clause is 'attempts to "
+        "vomit CONTINUE for more than 24 hours', and an animal sick once a day for three days "
+        "does not obviously meet it. The audit accepts that: the finding now supports a label "
+        "only when frequency is actually reported. The product made the same step and has "
+        "dropped the rule that rested on it."
     ),
 )
 
@@ -708,14 +883,302 @@ PET_POISON_HELPLINE = Finding(
 )
 
 
+# ---------------------------------------------------------------------------
+# Merck toxicology — wasp, bee and ant stings. Read 2026-08-18.
+# ---------------------------------------------------------------------------
+
+MERCK_STINGS = Finding(
+    id="merck.stings",
+    source_name="Merck Veterinary Manual - Wasp, Bee, and Ant Stings to Animals",
+    url=(
+        "https://www.merckvetmanual.com/toxicology"
+        "/bites-and-stings-from-spiders-scorpions-and-insects/wasp-bee-and-ant-stings-to-animals"
+    ),
+    species=DOG_AND_CAT,
+    statement=(
+        "An ordinary sting causes \"localized pain and swelling\" with \"erythema, edema\"; signs "
+        "\"can occur within minutes after the sting\" and \"resolve quickly, within minutes, "
+        "unless severe reaction occurs\". A fire ant sting gives a \"wheal and flare reaction, "
+        "which typically resolves within an hour\", leaving an \"erythematous pruritic papule\" "
+        "that resolves \"within 24 hours in most cases\". Multiple stings can cause "
+        "\"prostration, seizures or CNS depression, bloody diarrhea, bloody vomiting, "
+        "hyperthermia\"; massive envenomation can cause \"facial paralysis, ataxia, seizures\"; "
+        "anaphylaxis is possible and severe anaphylaxis is treated with epinephrine. \"Stings "
+        "are most common on the face and in the mouth.\" Author Andras Laszlo Nagy, DVM, MSc, "
+        "PhD, DABVT; peer reviewed by Ahna Brutlag, DVM, DABT, DABVT; last modified April 2026."
+    ),
+    urgency=Urgency.NONE,
+    accessed=DERMATOLOGY_AUDIT,
+    negative_finding=(
+        "The page never says when an owner should seek care. It describes treatments, not "
+        "thresholds. It also gives the opposite of an escalation cue for the ordinary case: a "
+        "local reaction resolves in minutes to a day, so a skin problem still present after "
+        "several days is unlikely to be explained by the sting at all."
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Merck emergency medicine — trauma. Read 2026-08-18.
+#
+# Recorded at PROMPT_EXAM, not EMERGENCY, and the reason is worth stating: the
+# page describes what trauma does to an animal and never tells anyone how fast
+# to act. The emergency framing on the trauma rule comes from the ASPCA page,
+# which names severe trauma outright. This one is cited for what it establishes
+# — that an attack is trauma, and that an animal can look fine and not be.
+# ---------------------------------------------------------------------------
+
+MERCK_TRAUMA = Finding(
+    id="merck.trauma",
+    source_name="Merck Veterinary Manual - Trauma in Emergency Medicine in Small Animals",
+    url=(
+        "https://www.merckvetmanual.com/emergency-medicine-and-critical-care"
+        "/specific-diagnostics-and-therapy/trauma-in-emergency-medicine-in-small-animals"
+    ),
+    species=DOG_AND_CAT,
+    statement=(
+        "Animals attacked by other animals can sustain \"deep, penetrating wounds\" and spinal "
+        "injuries, and \"major cervical ... abdominal, and thoracic trauma (even without "
+        "penetrating wounds) from the shearing forces sustained during thrashing motions\". "
+        "Blunt trauma is \"commonly associated with thoracic and abdominal bleeding, organ "
+        "rupture, fractures, and neurological injuries\", and falls \"may cause long bone and "
+        "facial bone fractures as well as thoracic and abdominal injuries\". \"A patient that "
+        "appears normal and stable on initial examination may have substantial underlying "
+        "injury\", and such injuries \"are not apparent for hours or sometimes days after the "
+        "initial trauma occurs\". Author Andrew Linklater, DVM, DACVECC; peer "
+        "reviewed by Patrick Carney, DVM, PhD, DACVIM; last modified March 2026."
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=DERMATOLOGY_AUDIT,
+    negative_finding=(
+        "The page does not say a trauma patient must be assessed immediately; it emphasises "
+        "close monitoring. The urgency on our trauma rule rests on the ASPCA page, not this one."
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Merck integumentary system. Read 2026-08-18, for the skin pathway. Real
+# article pages in the professional manual, each with a named board-certified
+# dermatologist author and a named peer reviewer.
+#
+# The recurring finding across all four: these pages describe how a skin problem
+# is characterised and diagnosed, and NONE of them says how quickly an animal
+# should be seen. So they can support "this needs an examination" and cannot
+# support any timing claim.
+# ---------------------------------------------------------------------------
+
+MERCK_DERM_PROBLEMS = Finding(
+    id="merck.dermatological_problems",
+    source_name="Merck Veterinary Manual - Dermatological Problems in Animals",
+    url=(
+        "https://www.merckvetmanual.com/integumentary-system"
+        "/integumentary-system-introduction/dermatological-problems-in-animals"
+    ),
+    species=ANY_SPECIES,
+    statement=(
+        "Organises skin disease by presentation: pruritus, alopecia, \"scaling and crusting\", "
+        "\"nodules or tumors\", odor, otitis, \"erosions and ulcerations\" and \"nonhealing "
+        "wounds\". Names the distribution patterns \"focal, multifocal, symmetrical, or "
+        "generalized\". Lists among the dermatological history \"presence or absence of "
+        "pruritus, evidence of contagion, or nondermatological problems\". States that "
+        "\"accurate diagnosis of the cause of alopecia requires a careful history and physical "
+        "examination\". Author Karen A. Moriello, DVM, DACVD; peer reviewed by Alejandro "
+        "Ramirez, DVM, PhD, DACVPM; last updated May 2025."
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=DERMATOLOGY_AUDIT,
+    inference=(
+        "The page states what a clinician needs in order to diagnose a skin problem. Reading "
+        "that as \"this animal needs to be examined\" is the audit's step: the page addresses "
+        "veterinarians and never tells an owner to seek care."
+    ),
+    negative_finding=(
+        "The page gives no urgency, no timing, and no threshold at which a skin problem stops "
+        "being watchable at home. Any timing claim built on it is an extrapolation."
+    ),
+)
+
+MERCK_PRURITUS = Finding(
+    id="merck.pruritus",
+    source_name="Merck Veterinary Manual - Pruritus in Animals",
+    url=(
+        "https://www.merckvetmanual.com/integumentary-system"
+        "/integumentary-system-introduction/pruritus-in-animals"
+    ),
+    species=ANY_SPECIES,
+    statement=(
+        "\"Pruritus (itching) is defined as an unpleasant sensation within the skin that "
+        "provokes the desire to scratch. It is the most common dermatological problem in both "
+        "small and large animals.\" \"Pruritus is a clinical sign, not a diagnosis or specific "
+        "disease.\" \"In general, the most common causes of pruritus are parasites, infections, "
+        "allergic skin diseases, and miscellaneous causes (eg, cutaneous neoplasia).\" "
+        "\"Diagnosis of pruritus requires a methodical workup performed in a logical sequence "
+        "in a compact period of time. A thorough dermatological history and physical "
+        "examination should be performed.\" Notes that discomfort such as pain or pruritus can "
+        "lead to self-trauma and hair loss. Author Karen A. Moriello, DVM, DACVD; peer reviewed "
+        "by Alejandro Ramirez, DVM, PhD, DACVPM; last updated May 2025."
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=DERMATOLOGY_AUDIT,
+    inference=(
+        "\"Requires a methodical workup\" describes the veterinary investigation, not a "
+        "recommendation to the owner about when to book it."
+    ),
+    negative_finding=(
+        "The page does NOT grade pruritus by severity and gives no urgency or timing. It says "
+        "nothing about how intensely an animal must be itching before it should be seen, so "
+        "the intake form's severity bands are the product's own and rest on no source here."
+    ),
+)
+
+MERCK_SKIN_DIAGNOSIS = Finding(
+    id="merck.skin_diagnosis",
+    source_name="Merck Veterinary Manual - Diagnosis of Skin Diseases in Small Animals",
+    url=(
+        "https://www.merckvetmanual.com/integumentary-system"
+        "/integumentary-system-introduction/diagnosis-of-skin-diseases-in-small-animals"
+    ),
+    species=DOG_AND_CAT,
+    statement=(
+        "\"A complete physical examination should always be performed to help diagnose a skin "
+        "disease\", including \"very close inspection of all the hair and skin under strong "
+        "lighting\". \"Many skin diseases look alike, and a definitive diagnosis is made by "
+        "including or excluding possible causes and by evaluating responses to treatment.\" The "
+        "dermatologic history records the primary sign and its duration, age of onset, "
+        "\"presence and severity of pruritus, as indicated by behaviors such as licking, "
+        "rubbing, scratching, or chewing\", progression, lesion distribution, seasonality, "
+        "previous treatment, bathing, parasite exposure, \"contact with other possibly "
+        "contagious animals\", and signs of systemic illness. \"Diseases that begin with "
+        "pruritus can lead to self-trauma and subsequent development of secondary skin lesions "
+        "(alopecia, seborrhea) or infections (bacterial or yeast pyoderma).\" \"Skin scrapings "
+        "are part of the basic database for all skin diseases\" and \"hair trichograms are part "
+        "of the basic database for all skin diseases\". \"Many skin diseases are manifestations "
+        "of systemic diseases.\" Author Karen A. Moriello, DVM, DACVD; peer reviewed by "
+        "Alejandro Ramirez, DVM, PhD, DACVPM; last modified May 2025."
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=DERMATOLOGY_AUDIT,
+    inference=(
+        "\"Should always be performed\" instructs the clinician diagnosing a skin disease. "
+        "Reading it as \"this animal should be booked in\" is still the audit's step, though a "
+        "shorter one than on the other dermatology pages."
+    ),
+    negative_finding=(
+        "No urgency, no timeframe, and no statement about when an owner should seek care. The "
+        "page also does NOT say that the history and examination select which tests are used - "
+        "it describes skin scrapings and trichograms as part of the basic database for ALL skin "
+        "diseases, which is the opposite of selective testing."
+    ),
+)
+
+# Read 2026-08-18 and recorded, but NOT cited by any rule: it is the
+# dog-owners version, and the skin rules cover cats too, so citing it would
+# widen a dog-only page. Kept here because a reviewer asked what it says.
+MERCK_OWNER_SKIN_DIAGNOSIS = Finding(
+    id="merck.owner_skin_diagnosis",
+    source_name="Merck Veterinary Manual - Diagnosis of Skin Disorders in Dogs (pet-owner version)",
+    url=(
+        "https://www.merckvetmanual.com/dog-owners/skin-disorders-of-dogs"
+        "/diagnosis-of-skin-disorders-in-dogs"
+    ),
+    species=DOG_ONLY,
+    statement=(
+        "\"A precise diagnosis of the causes of a skin disease requires a detailed history, "
+        "physical examination, and appropriate diagnostic tests.\" The veterinarian \"may order "
+        "any of a number of laboratory procedures\", naming \"microscopic analysis of skin "
+        "scrapings and hair, cultures of hair or skin swabs, specialized skin tests, blood and "
+        "urine tests, and even biopsies\". \"It may take several days before laboratory results "
+        "are available\" and \"more than one visit is often required for an accurate "
+        "diagnosis\". Author Karen A. Moriello, DVM, DACVD; last updated September 2024; no peer "
+        "reviewer named."
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=DERMATOLOGY_AUDIT,
+    page_type="pet-owner article",
+    negative_finding=(
+        "Like the professional version, this page does NOT say on what basis the veterinarian "
+        "chooses which tests to run - only that they may order them. It gives no urgency and no "
+        "timeframe for seeking care."
+    ),
+)
+
+MERCK_PYODERMA = Finding(
+    id="merck.pyoderma",
+    source_name="Merck Veterinary Manual - Pyoderma in Dogs and Cats",
+    url="https://www.merckvetmanual.com/integumentary-system/pyoderma/pyoderma-in-dogs-and-cats",
+    species=DOG_AND_CAT,
+    statement=(
+        "\"Pyoderma\" generally refers to bacterial dermatitis and literally means \"pus in the "
+        "skin\". Superficial pyoderma in dogs: \"multifocal areas of alopecia, follicular "
+        "papules or pustules, epidermal collarettes, crusts and scales\". \"The hallmarks of "
+        "deep pyoderma in dogs are pain, crusting, odor, and exudation of blood and pus. "
+        "Erythema, swelling, ulcerations, hemorrhagic crusts and bullae, hair loss, and "
+        "draining tracts with serohemorrhagic or purulent exudate might also be present.\" "
+        "Deep pyoderma is \"less common but more serious because it expands into the dermis, "
+        "with a higher risk of bacteremia\". \"Diagnosis of pyoderma is based on the presence "
+        "of characteristic lesions, confirmation of the presence of bacteria, and ruling out "
+        "other common causes\"; cytology is \"one of the most valuable tools\" and \"treatment "
+        "should be based on the results of bacterial culture and susceptibility testing\". "
+        "Author Mitzi D. Clark, DVM, DACVD; peer reviewed by Patrick Carney, DVM, PhD, DACVIM; "
+        "last modified October 2025."
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=DERMATOLOGY_AUDIT,
+    negative_finding=(
+        "\"More serious\" and \"higher risk of bacteremia\" describe deep pyoderma's clinical "
+        "significance, not how fast the animal must be seen. The page names no emergency, no "
+        "same-day language and no time window."
+    ),
+)
+
+MERCK_DERMATOPHYTOSIS = Finding(
+    id="merck.dermatophytosis",
+    source_name="Merck Veterinary Manual - Dermatophytosis in Dogs and Cats",
+    url=(
+        "https://www.merckvetmanual.com/integumentary-system/dermatophytosis"
+        "/dermatophytosis-in-dogs-and-cats"
+    ),
+    species=DOG_AND_CAT,
+    statement=(
+        "\"Dermatophytosis is a zoonotic disease\" whose lesions in people \"are easily "
+        "treated\". \"Transmission is by direct contact with an infected animal, but mere "
+        "exposure does not always result in disease.\" Lesions \"can include hair loss, "
+        "scaling, crusting erythema, papules, hyperpigmentation, and variable pruritus\". "
+        "\"No single test is a gold standard\" and \"typically, multiple tests are used to "
+        "confirm infection\" (Wood's lamp, trichogram, fungal culture, PCR). \"Infected small "
+        "animals should remain isolated from other pets until there is clear evidence of "
+        "clinical cure.\" Author Karen A. Moriello, DVM, DACVD; peer reviewed by Joyce "
+        "Carnevale, DVM, DABVP; last updated February 2025."
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=DERMATOLOGY_AUDIT,
+    inference=(
+        "The page addresses a confirmed infection. Treating \"another pet or a person in the "
+        "house has developed a skin problem too\" as a reason for this animal to be examined "
+        "is the audit's step; the page does not describe that owner-reported situation."
+    ),
+    negative_finding=(
+        "The page describes dermatophytosis as self-limiting in otherwise healthy animals, "
+        "resolving in 6-12 weeks. It gives no urgency and nothing here supports treating "
+        "contagion as time-critical."
+    ),
+)
+
+
 ALL_FINDINGS: tuple[Finding, ...] = (
     *MERCK_LIST,
+    ASPCA_TRANSPORT,
     MERCK_HEATSTROKE,
     *ASPCA_LIST,
     CAT_ANOREXIA_24H,
     KITTEN_ANOREXIA_12H,
     CAT_ANOREXIA_UNDER_24H,
+    CORNELL_LUTD,
+    CORNELL_LUTD,
     ACVS_OBSTRUCTION,
+    ACVS_OBSTRUCTION_DOGS,
+    MERCK_URETHRAL_OBSTRUCTION,
     CORNELL_GDV,
     MISSOURI_BLOOD,
     MISSOURI_TARRY,
@@ -744,6 +1207,14 @@ ALL_FINDINGS: tuple[Finding, ...] = (
     MERCK_AURICULAR_HEMATOMA,
     ASPCA_POISON_CONTROL,
     PET_POISON_HELPLINE,
+    MERCK_STINGS,
+    MERCK_TRAUMA,
+    MERCK_DERM_PROBLEMS,
+    MERCK_PRURITUS,
+    MERCK_SKIN_DIAGNOSIS,
+    MERCK_OWNER_SKIN_DIAGNOSIS,
+    MERCK_PYODERMA,
+    MERCK_DERMATOPHYTOSIS,
 )
 
 # Species this evidence base can speak to at all. Anything else is unassessable.

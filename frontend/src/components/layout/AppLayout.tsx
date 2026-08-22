@@ -227,7 +227,9 @@ export default function AppLayout() {
 
       {user && !user.can_participate && <RestrictionBanner user={user} />}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+      {/* Extra bottom padding on phones keeps the last control on a page clear
+          of the fixed assistant bubble in the corner. */}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-6 sm:pb-6">
         <Outlet />
       </main>
 

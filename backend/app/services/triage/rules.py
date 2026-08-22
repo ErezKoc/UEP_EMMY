@@ -23,11 +23,18 @@ from app.schemas.triage import (
     BodyArea,
     Concern,
     Duration,
+    ItchLevel,
     RedFlag,
     TimeSinceEating,
+    DiagnosticEvidence,
+    ExtrapolationKind,
     TriageLevel,
     Trend,
+    UrgencyEvidence,
 )
+import enum
+from dataclasses import dataclass
+
 from app.services.triage.citations import Citation
 from app.services.triage.conditions import (
     AgeIn,
@@ -39,6 +46,7 @@ from app.services.triage.conditions import (
     DurationIn,
     HasRedFlag,
     IsFragilePatient,
+    ItchLevelIn,
     NotEatingFor,
     SpeciesIs,
     TrendIs,
@@ -46,6 +54,7 @@ from app.services.triage.conditions import (
 from app.services.triage.rule import Rule
 from app.services.triage.sources import (
     ACVS_URINARY_OBSTRUCTION,
+    ACVS_URINARY_OBSTRUCTION_DOGS,
     ALL_SPECIES,
     ASPCA_EMERGENCY,
     ASPCA_POISON_CONTROL,
@@ -53,15 +62,24 @@ from app.services.triage.sources import (
     CORNELL_ANOREXIA,
     CORNELL_DIARRHOEA,
     CORNELL_GDV,
+    CORNELL_LUTD,
     DOG_ONLY,
     MERCK_ACUTE_GLAUCOMA,
     MERCK_ANTERIOR_UVEITIS,
     MERCK_AURICULAR_HEMATOMA,
     MERCK_CORROSIVE_EYE_EXPOSURE,
+    MERCK_DERM_PROBLEMS,
+    MERCK_DERMATOPHYTOSIS,
     MERCK_EMERGENCY,
     MERCK_EYE_ANTI_INFLAMMATORY,
     MERCK_OTITIS_EXTERNA,
     MERCK_OTITIS_MEDIA_INTERNA,
+    MERCK_PRURITUS,
+    MERCK_STINGS,
+    MERCK_TRAUMA,
+    MERCK_URETHRAL_OBSTRUCTION,
+    MERCK_PYODERMA,
+    MERCK_SKIN_DIAGNOSIS,
     MISSOURI_VOMITING,
     PET_POISON_HELPLINE,
     Source,
@@ -98,8 +116,25 @@ _EYE_CARE_INSTRUCTIONS = (
     "Online veterinary advice can supplement an examination, but it should not delay in-person care.",
 )
 
-_EYE_REASON = (
-    "Redness and watering are not specific to one condition. A photo cannot rule out corneal damage, "
+# One string used to serve both eye rules, and it opened "Redness and watering
+# are not specific to one condition" — VCA's signs, not the owner's. An owner
+# who picked "Eyes" and ticked nothing was told about redness and watering they
+# had never reported, and one who ticked "cloudy eye" was told the same. The
+# two rules now say different things, and neither names a sign the owner did
+# not give us.
+#
+# `{reported}` is filled from what was actually ticked; this rule's condition
+# guarantees at least one, so the neutral fallback never appears here.
+_EYE_SIGNS_REPORTED_REASON = (
+    "The signs you reported — {reported} — are not specific to one condition. A photo cannot rule "
+    "out corneal damage, inflammation inside the eye, or glaucoma; a veterinarian may need "
+    "fluorescein staining and eye-pressure testing."
+)
+
+# For a new eye concern with none of the signs above ticked. It names no sign
+# at all, because we have not been told one.
+_EYE_CONCERN_REASON = (
+    "A new eye problem is not specific to one condition. A photo cannot rule out corneal damage, "
     "inflammation inside the eye, or glaucoma; a veterinarian may need fluorescein staining and "
     "eye-pressure testing."
 )
@@ -131,20 +166,150 @@ _EAR_REASON = (
     "to identify the cause."
 )
 
+# --------------------------------------------------------------------------
+# Skin and coat.
+#
+# The four Merck dermatology pages behind this section agree on two things and
+# are silent on a third. They agree that a skin case is defined by its lesions
+# — pruritus, alopecia, scaling and crusting, nodules, odour, erosions and
+# ulcerations, nonhealing wounds — and that naming the cause takes a history,
+# an examination and tests. They say nothing whatsoever about how quickly an
+# animal should be seen. So every rule here recommends an examination and none
+# of them states a timeframe.
+#
+# This is also why "skin or coat" on its own fires nothing: it is the owner's
+# word for a category, not a description of the skin. The questions that follow
+# it in the form are what these rules actually read.
+# --------------------------------------------------------------------------
 
+_SKIN_INFECTION_FLAGS = (
+    RedFlag.SKIN_DISCHARGE_OR_PUS,
+    RedFlag.SKIN_ODOR,
+    RedFlag.SKIN_OPEN_WOUND,
+)
+
+_SKIN_LESION_FLAGS = (
+    RedFlag.SKIN_ITCHING,
+    RedFlag.SKIN_REDNESS,
+    RedFlag.SKIN_HAIR_LOSS,
+    RedFlag.SKIN_RASH_OR_BUMPS,
+    RedFlag.SKIN_SCABS_OR_FLAKING,
+    RedFlag.SKIN_SWELLING,
+    RedFlag.SKIN_LUMP,
+    RedFlag.SKIN_NAIL_OR_PAD_CHANGE,
+)
+
+# The headline asserts the proposition the sources actually establish — that
+# the cause of a skin problem is worked out by examining it — rather than the
+# one they do not: that a patch this mild has to be seen rather than watched.
+# "Veterinary examination recommended" sat above a confidence panel admitting
+# our sources set no such bar, and an owner reads the headline first.
+#
+# "An examination is how the cause gets identified" then overstated it in the
+# other direction, and "Identifying the cause takes an examination" still read
+# as though the examination were the whole of it. Merck's account is that a
+# definitive diagnosis takes the history, the physical examination AND
+# appropriate tests — scrapings, hair examination, cytology, culture — because
+# many skin diseases look alike. "Part of" is the claim that survives all of
+# that, and it is the same claim the certainty panel below makes in its own
+# words, which is what an owner should find when they look for the evidence.
+_SKIN_HEADLINE = "A veterinary examination is part of identifying the cause"
+
+# "arranging one" pointed back at a noun three words into the previous
+# sentence, on a card where the two are rendered in different sections and the
+# owner may well read this one first.
+_SKIN_ADVICE = (
+    "We suggest contacting your veterinary clinic and arranging an examination. Our sources "
+    "describe how a skin problem is diagnosed; none of them says whether something this mild "
+    "needs an appointment or could be watched first, so the suggestion is our cautious default "
+    "rather than theirs."
+)
+
+# No skin-specific "when to get urgent help" list. There was one, and every line
+# of it was invented: plausible-sounding thresholds ("the area is oozing or
+# spreading quickly") that no page we hold states as a reason to be seen faster.
+# A source saying odour accompanies infection establishes that odour matters
+# diagnostically; it does not establish an urgency threshold, and the difference
+# is the whole point of this system. Skin results now fall back to the general
+# emergency list in `GENERAL_EMERGENCY_SIGNS`, which is sourced independently of
+# the skin problem and true regardless of it.
+
+# Explanatory, not instructions — which is why they are `what_to_expect` and not
+# `care_instructions`. Two sentences about how skin disease is diagnosed were
+# appearing under the heading "Care until the appointment", where they told the
+# owner nothing about caring for the animal.
+#
+# The second one no longer predicts what this veterinarian will do at this
+# appointment ("expect the appointment to involve tests"). Merck describes
+# scrapings and trichograms as part of the basic database for skin disease; it
+# does not say what any particular clinician will order, and neither the
+# professional nor the pet-owner page states on what basis tests are chosen.
+_SKIN_WHAT_TO_EXPECT = (
+    "Many skin diseases look alike. A diagnosis is reached by including or excluding possible"
+    " causes and by seeing how the skin responds to treatment, so appearance alone cannot"
+    " reliably identify the cause.",
+    "Merck describes skin scrapings and examination of hair among the diagnostic methods used for"
+    " skin disease, alongside the history and the physical examination.",
+)
 # --------------------------------------------------------------------------
 # Emergency rules — any one of these makes the assessment RED on its own.
 # --------------------------------------------------------------------------
 
 EMERGENCY_RULES: tuple[Rule, ...] = (
+    # ----------------------------------------------------------------------
+    # Breathing, as two questions rather than one.
+    #
+    # There was a single option, "breathing hard or fast", firing one
+    # unconditional emergency rule that cited Merck's "trouble breathing" and
+    # the ASPCA's "rapid breathing" together. Those are two signs, and only one
+    # of them survives without qualification: a dog that has just run, or is
+    # hot, or is excited, breathes hard and fast and is not an emergency. The
+    # option collected both readings and could not tell them apart, so a
+    # panting-after-exercise report and a dog in respiratory distress arrived
+    # here as the same answer.
+    #
+    # Both halves are still unconditionally red. What changed is what the owner
+    # is asked, and therefore which reports reach the rule at all. That is a
+    # deliberate narrowing of intake, flagged below for the reviewer, and it
+    # takes nothing away from anyone who reports either sign.
+    # ----------------------------------------------------------------------
     Rule(
         id="trouble_breathing",
         condition=HasRedFlag(RedFlag.TROUBLE_BREATHING),
-        message="Difficulty breathing needs emergency veterinary care.",
+        # Merck's alone now. The ASPCA's "rapid breathing" belongs to the rule
+        # below, and citing both pages here implied each supported the whole of
+        # what the old combined option collected.
+        message=(
+            "Breathing that looks difficult or laboured is an emergency warning sign. Merck lists "
+            "trouble breathing among emergencies needing immediate care."
+        ),
         level_override=TriageLevel.RED,
         citations=(
             _cite(MERCK_EMERGENCY, "lists trouble breathing among emergencies needing immediate care"),
+        ),
+    ),
+    Rule(
+        id="rapid_breathing_at_rest",
+        condition=HasRedFlag(RedFlag.RAPID_BREATHING_AT_REST),
+        message=(
+            "Breathing unusually fast while resting is an emergency warning sign. The ASPCA lists "
+            "rapid breathing among the signs a pet needs emergency care."
+        ),
+        level_override=TriageLevel.RED,
+        citations=(
             _cite(ASPCA_EMERGENCY, "lists rapid breathing among signs a pet needs emergency care"),
+        ),
+        reviewer_note=(
+            "NARROWER THAN ITS SOURCE, DELIBERATELY — and note which half of that is ours. The"
+            " positive claim is the ASPCA's: it lists rapid breathing among the signs a pet needs"
+            " emergency care, and rapid breathing at rest is a subset of rapid breathing, so"
+            " nothing here reaches past the page. What is our judgement is the decision NOT to"
+            " escalate every other instance of rapid breathing, because the unqualified question"
+            " cannot distinguish a dog in distress from a dog that has just been running."
+            " Cornell's canine respiratory-distress material is reported to say healthy dogs pant"
+            " heavily with stress, excitement, exertion or cooling; nobody here has read it (see"
+            " candidate `respiratory_distress_composite`). Please confirm 'while resting' is the"
+            " right qualifier to put in front of an owner."
         ),
     ),
     Rule(
@@ -214,6 +379,7 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
     ),
     Rule(
         id="eye_emergency_signs",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
         # Deliberately NOT gated on the concern or body area the owner picked.
         # It used to be, and an owner who filed "one pupil is much bigger and
         # she's walking into things" under "other" got no rules and a green
@@ -229,7 +395,14 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
                 HasRedFlag(RedFlag.EYE_DISCHARGE_YELLOW_GREEN_OR_BLOODY),
             )
         ),
-        message=_EYE_REASON,
+        message=_EYE_SIGNS_REPORTED_REASON,
+        reported_signs=(
+            RedFlag.EYE_PAIN_OR_CLOSED,
+            RedFlag.EYE_CLOUDY_OR_BLUE,
+            RedFlag.UNEQUAL_PUPILS_OR_VISION_CHANGE,
+            RedFlag.EYE_BULGING_OR_SEVERE_SWELLING,
+            RedFlag.EYE_DISCHARGE_YELLOW_GREEN_OR_BLOODY,
+        ),
         level_override=TriageLevel.RED,
         citations=(
             _cite(
@@ -258,6 +431,7 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
     ),
     Rule(
         id="eye_chemical_exposure",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
         condition=HasRedFlag(RedFlag.EYE_CHEMICAL_EXPOSURE),
         message=(
             "A chemical splash in the eye needs prolonged flushing followed by an examination that "
@@ -327,9 +501,30 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
     Rule(
         id="unable_to_urinate",
         condition=HasRedFlag(RedFlag.UNABLE_TO_URINATE),
-        message="Straining to urinate while producing little or nothing can mean a blockage, which is an emergency.",
+        # Two sentences, in Cornell's own order: the sign is a possible sign of
+        # obstruction, and a SUSPECTED obstruction is what needs immediate
+        # attention. "which is an emergency in any cat" compressed those into
+        # one clause that can be read as though the obstruction were already
+        # established — this rule fires on straining, and straining has many
+        # causes. The urgency does not depend on which one it is.
+        message=(
+            "Straining to urinate while producing little or nothing can be a sign of urethral "
+            "obstruction. A suspected obstruction requires immediate veterinary attention."
+        ),
         level_override=TriageLevel.RED,
         citations=(
+            # Cornell first, deliberately: it covers cats, while the ACVS page is
+            # about male cats and the form never asks the cat's sex. Citing the
+            # male-only page alone left the rule's applicability resting on
+            # something the owner was never asked.
+            _cite(
+                CORNELL_LUTD,
+                "states that a cat with a urethral obstruction may strain to urinate, make"
+                " frequent attempts, and produce little if any urine; that urethral obstruction"
+                " is a true medical emergency and any cat suspected of it must receive immediate"
+                " veterinary attention; and that male and neutered male cats are at greater risk"
+                " than females rather than being the only cats affected",
+            ),
             _cite(
                 ACVS_URINARY_OBSTRUCTION,
                 "states urinary obstruction requires emergency treatment and can be fatal in 3-6 days;"
@@ -338,8 +533,89 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
         ),
         applies_to_species=CAT_ONLY,
         reviewer_note=(
-            "ACVS describes urethral obstruction in male cats. This rule is therefore deliberately"
-            " limited to cats until a suitable source for other species is reviewed."
+            "The cat half of a pair. Both this rule and `dog_unable_to_urinate` fire on the same"
+            " sign and reach the same level; they are separate because each rests on evidence for"
+            " its own species, and the type refuses to let one page's species scope be stretched"
+            " over the other. Please review them together."
+        ),
+    ),
+    Rule(
+        # The rule that does not need the species answered. Merck states the
+        # claim for small animals generally, so this one is not narrowed and
+        # reaches an owner who never told us which animal it is — the case the
+        # two species rules below cannot cover, and the one the engine used to
+        # abstain on. The species rules stay because each carries the better
+        # evidence for its own animal; a reviewer should see all three.
+        id="unable_to_urinate_either_species",
+        condition=HasRedFlag(RedFlag.UNABLE_TO_URINATE),
+        # Worded differently from the two species rules on purpose. All three
+        # can fire for the same animal, and an owner should not read the same
+        # sentence twice; this line carries what is particular to this rule,
+        # which is that the emergency is not specific to one species.
+        message=(
+            "Blocked urine flow is treated as an emergency in dogs and cats alike, and can become "
+            "life-threatening within a day or two."
+        ),
+        level_override=TriageLevel.RED,
+        citations=(
+            _cite(
+                MERCK_URETHRAL_OBSTRUCTION,
+                "calls urethral obstruction an emergency condition in small animals, covering dogs"
+                " and cats rather than one of them, and states that complete obstruction causes"
+                " uraemia within 36-48 hours and death within about 72",
+            ),
+        ),
+        reviewer_note=(
+            "WHY THREE RULES FOR ONE SIGN. Each rests only on evidence for the animals it serves,"
+            " because the type refuses to stretch a species-bound page over another species. This"
+            " one is the general claim, and it is what answers an owner who did not say whether"
+            " the animal is a dog or a cat. If you would rather the unidentified-species case go"
+            " back to an abstention, this is the rule to remove."
+        ),
+    ),
+    Rule(
+        id="dog_unable_to_urinate",
+        condition=All((SpeciesIs("dog"), HasRedFlag(RedFlag.UNABLE_TO_URINATE))),
+        # Deliberately the same two sentences as the feline rule, because the
+        # claim is the same one: the sign suggests obstruction, and a SUSPECTED
+        # obstruction is what needs immediate attention. The rule fires on
+        # straining, which has other causes; the urgency does not depend on
+        # which cause it turns out to be.
+        message=(
+            "Straining to urinate while producing little or nothing can be a sign of urethral "
+            "obstruction. A suspected obstruction requires immediate veterinary attention."
+        ),
+        level_override=TriageLevel.RED,
+        citations=(
+            # ACVS first: it is the page written about dogs, and it states the
+            # urgency in the form an owner needs it.
+            _cite(
+                ACVS_URINARY_OBSTRUCTION_DOGS,
+                "states that a pet unable to urinate should be seen by a veterinarian immediately,"
+                " that a dog whose urethra is completely blocked will strain without producing any"
+                " urine, and that dogs with total urethral obstruction die within days if it is"
+                " not relieved",
+            ),
+            _cite(
+                MERCK_URETHRAL_OBSTRUCTION,
+                "calls urethral obstruction an emergency condition in small animals, describes"
+                " frequent nonproductive attempts to urinate among its signs, and states that"
+                " complete obstruction causes uraemia within 36-48 hours and death within about"
+                " 72",
+            ),
+        ),
+        applies_to_species=DOG_ONLY,
+        reviewer_note=(
+            "NEW, AND THE GAP IT CLOSES WAS OURS. Until this rule a dog reported as straining and"
+            " producing nothing matched nothing at all and received our abstention — never called"
+            " minor, but given no urgency either. The rule was parked as candidate"
+            " `urinary_obstruction_outside_cats` on the grounds that we held no non-feline source;"
+            " both pages cited here were public the whole time and simply had not been opened."
+            " Please confirm the trigger for dogs and whether the wording should differ from the"
+            " feline rule. Note what the form does NOT ask: neither sex nor whether the animal is"
+            " straining to urinate or to defecate. Merck records that owners mistake obstruction"
+            " for constipation, which is an argument for keeping the sign broad, but it is your"
+            " call whether the question needs splitting."
         ),
     ),
     Rule(
@@ -367,6 +643,50 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
                 "lists blood or coffee-grounds material in vomit, and bloody or dark tarry stool,"
                 " among situations warranting immediate attention",
             ),
+        ),
+        reviewer_note=(
+            "ADJUDICATE THE EXACT PROPOSITION, which is broader than the page it cites: does ANY"
+            " owner-reported blood in vomit or stool — any amount, any frequency, any colour, no"
+            " accompanying signs, either species — belong in the emergency branch? Missouri lists"
+            " situations; this rule reads any report of the sign. 'Significant GI bleeding can be"
+            " an emergency' and 'any blood is an emergency' are different claims and we are"
+            " asserting the second. Deliberately left broad in the meantime, because an owner"
+            " cannot reliably judge amount, and over-triage here is the cost we said we would"
+            " accept — but it is our call, not the source's. Recorded as"
+            " candidate `gi_blood_emergency_breadth`."
+        ),
+    ),
+    Rule(
+        # The feline counterpart of `dog_not_eating`, and it should always have
+        # existed. A cat that had not eaten for under 24 hours matched nothing
+        # and was told "nothing in our evidence library matched", while a dog in
+        # the same state got an amber on VCA. The gap was in the rule table, not
+        # in the library: Cornell's page states the claim without conditioning
+        # it on any duration, which is why the two rules below can keep their
+        # thresholds and this one carries no threshold at all.
+        id="cat_not_eating",
+        condition=All((SpeciesIs("cat"), HasRedFlag(RedFlag.NOT_EATING))),
+        message="A cat going off its food is worth having checked.",
+        weight=3,
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
+        citations=(
+            _cite(
+                CORNELL_ANOREXIA,
+                "states that a cat which is not eating deserves a full veterinary workup, and"
+                " encourages owners to consult a veterinarian immediately on noticing any signs"
+                " of feline anorexia, neither of which it conditions on how long the cat has"
+                " gone without food",
+            ),
+        ),
+        applies_to_species=CAT_ONLY,
+        reviewer_note=(
+            "GRADED BELOW WHAT THE PAGE SAYS, DELIBERATELY. Cornell's word is 'immediately'."
+            " This rule is amber, not red, because the red rules on either side of it are the"
+            " ones with a duration behind them — 24 hours for a mature cat, 12 for a kitten —"
+            " and making every skipped meal an emergency would empty those thresholds of"
+            " meaning. Amber is our reading of 'consult a veterinarian', not Cornell's grading;"
+            " please confirm it, and say whether a cat off its food for under 24 hours should"
+            " instead be same-day."
         ),
     ),
     Rule(
@@ -424,6 +744,29 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
         ),
     ),
     Rule(
+        id="profuse_vomiting_in_a_day",
+        condition=HasRedFlag(RedFlag.VOMITING_MANY_TIMES),
+        message=(
+            "Vomiting many times in a day is one of the situations Missouri lists as warranting "
+            "more immediate veterinary attention."
+        ),
+        level_override=TriageLevel.RED,
+        citations=(
+            _cite(
+                MISSOURI_VOMITING,
+                "lists profuse vomiting occurring many times in a day, or attempts to vomit"
+                " continuing for more than 24 hours, among the situations warranting more"
+                " immediate veterinary attention",
+            ),
+        ),
+        reviewer_note=(
+            "Added because the form could not see this clause at all: it asked how LONG the"
+            " vomiting had gone on and never how often, so the duration-based rule was carrying"
+            " both halves of Missouri's criterion. Is 'many times in a day' the right wording to"
+            " put in front of an owner?"
+        ),
+    ),
+    Rule(
         id="gi_signs_with_extreme_lethargy",
         condition=All(
             (
@@ -431,8 +774,13 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
                 HasRedFlag(RedFlag.EXTREME_LETHARGY),
             )
         ),
+        # "marked lethargy ... needs prompt attention" was a paraphrase of a
+        # paraphrase. Missouri's own construction is an escalation list inside a
+        # vomiting or diarrhoeic presentation, and saying so lets a reviewer
+        # check the sentence against the page without translating it first.
         message=(
-            "Vomiting or diarrhoea together with marked lethargy needs prompt veterinary attention."
+            "Vomiting or diarrhoea in an animal that is extremely lethargic is one of the "
+            "situations Missouri lists as warranting more immediate veterinary attention."
         ),
         level_override=TriageLevel.RED,
         citations=(
@@ -442,40 +790,46 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
                 " more immediate veterinary attention in a vomiting or diarrhoeic animal",
             ),
         ),
+        extrapolations=frozenset({ExtrapolationKind.MAPPING}),
         reviewer_note=(
-            "Missouri frames its escalation list inside a vomiting/diarrhoea presentation, so this"
-            " rule requires one of those signs. Lethargy reported on its own stays graded, because"
-            " no source we hold addresses it alone."
+            "EXTRAPOLATION (mapping): the form offers \"very tired, won\u2019t move much\", and"
+            " Missouri\u2019s item is \"the animal is extremely lethargic or depressed\". Treating"
+            " the owner\u2019s words as that clinical description is our step; it is a short one,"
+            " but it is ours. Missouri also frames its escalation list inside a vomiting/diarrhoea"
+            " presentation, so this rule requires one of those signs. Lethargy reported on its own"
+            " stays graded, because no source we hold addresses it alone."
         ),
     ),
-    Rule(
-        id="prolonged_vomiting",
-        condition=All(
-            (
-                HasRedFlag(RedFlag.VOMITING),
-                DurationIn((Duration.DAYS_2_7, Duration.WEEKS_1_4, Duration.OVER_MONTH)),
-            )
-        ),
-        message="Vomiting that continues beyond a day needs veterinary attention.",
-        level_override=TriageLevel.RED,
-        citations=(
-            _cite(
-                MISSOURI_VOMITING,
-                "lists profuse vomiting many times in a day, or attempts continuing more than 24 hours,"
-                " among situations warranting immediate attention",
-            ),
-        ),
-        reviewer_note="Our shortest duration band is 'today', so anything longer is treated as beyond 24 hours.",
-    ),
+    # DELETED: `prolonged_vomiting`, which fired on vomiting plus any duration
+    # band beyond "today" and claimed Missouri's "attempts to vomit continue for
+    # more than 24 hours". Those are not the same thing — an animal sick once a
+    # day for three days has vomited over more than 24 hours without its
+    # attempts to vomit continuing for 24 hours — and the form never established
+    # which. Missouri's clause is now asked about directly, in
+    # `profuse_vomiting_in_a_day`, so nothing sourced was lost by removing this.
+    # Duration alone now supports no claim about vomiting; see candidates.py.
     Rule(
         id="major_trauma",
         condition=HasRedFlag(RedFlag.MAJOR_TRAUMA),
-        message="After a car accident, a fall, or an attack, your pet needs to be seen even if they seem fine.",
+        message=(
+            "After a car accident, a fall, or an attack, your pet needs to be seen even if they "
+            "seem fine — an animal that looks stable can have substantial internal injury."
+        ),
         level_override=TriageLevel.RED,
         citations=(
             _cite(
                 ASPCA_EMERGENCY,
                 "states pets may need emergency care because of severe trauma caused by an accident or fall",
+            ),
+            # The ASPCA names accidents and falls; the attack, and the reason
+            # "even if they seem fine" is in the message at all, are Merck's.
+            _cite(
+                MERCK_TRAUMA,
+                "describes attacks by other animals causing deep penetrating wounds, spinal"
+                " injuries and major cervical, abdominal and thoracic trauma even without"
+                " penetrating wounds, and states that a patient appearing normal and stable on"
+                " initial examination may have substantial underlying injury that is not apparent"
+                " for hours or sometimes days",
             ),
         ),
     ),
@@ -514,14 +868,78 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
         condition=HasRedFlag(RedFlag.CHOKING),
         message="Choking needs emergency veterinary care.",
         level_override=TriageLevel.RED,
-        citations=(_cite(ASPCA_EMERGENCY, "lists choking among life-threatening situations"),),
+        citations=(
+            _cite(
+                ASPCA_EMERGENCY,
+                "names choking among the causes a pet may need emergency care because of",
+            ),
+        ),
+        reviewer_note=(
+            "The ASPCA sentence behind this rule says a pet MAY need emergency care BECAUSE OF"
+            " choking, which is weaker than 'choking is an emergency'. We keep it red because an"
+            " obstructed airway is acute and the safe direction here is obvious, but the framing"
+            " is the same one that made the old insect-sting rule wrong, so please confirm it."
+        ),
     ),
     Rule(
-        id="insect_sting_reaction",
-        condition=HasRedFlag(RedFlag.INSECT_STING_REACTION),
-        message="A sting with swelling or breathing changes needs emergency care.",
+        # A sting is an exposure, not a sign. This rule used to fire on the
+        # exposure alone and send an owner to an emergency service because their
+        # dog had been stung — while the same form's emergency screen had just
+        # returned nothing. Merck describes the ordinary sting as local pain and
+        # swelling resolving in minutes to a day; what makes one an emergency is
+        # the reaction, so that is what the rule now reads.
+        id="sting_with_emergency_signs",
+        condition=All(
+            (
+                HasRedFlag(RedFlag.INSECT_STING_REACTION),
+                Any_(
+                    (
+                        HasRedFlag(RedFlag.TROUBLE_BREATHING),
+                        # Added with the breathing split: the ASPCA's own sign
+                        # list is where this escalation comes from, and rapid
+                        # breathing is on it.
+                        HasRedFlag(RedFlag.RAPID_BREATHING_AT_REST),
+                        HasRedFlag(RedFlag.COLLAPSE_OR_UNRESPONSIVE),
+                        HasRedFlag(RedFlag.PALE_GUMS),
+                        HasRedFlag(RedFlag.SEIZURE),
+                        HasRedFlag(RedFlag.BLOOD_IN_VOMIT_OR_STOOL),
+                    )
+                ),
+            )
+        ),
+        message=(
+            "A sting together with breathing difficulty, collapse, pale gums, a seizure or blood "
+            "in vomit or stool is the reaction that needs emergency care, not the sting on its "
+            "own."
+        ),
         level_override=TriageLevel.RED,
-        citations=(_cite(ASPCA_EMERGENCY, "lists an insect sting among life-threatening situations"),),
+        citations=(
+            _cite(
+                ASPCA_EMERGENCY,
+                "gives pale gums, rapid breathing, difficulty standing, apparent paralysis, loss"
+                " of consciousness, seizures and excessive bleeding as signs a pet needs"
+                " emergency care, and names an insect sting among the causes a pet may need"
+                " emergency care because of",
+            ),
+            _cite(
+                MERCK_STINGS,
+                "describes the ordinary sting as localized pain, swelling and erythema occurring"
+                " within minutes and resolving quickly unless a severe reaction occurs, and"
+                " describes prostration, seizures or CNS depression, bloody diarrhea, bloody"
+                " vomiting and hyperthermia after multiple stings, with anaphylaxis possible",
+            ),
+        ),
+        reviewer_note=(
+            "REPLACES a rule that made every reported sting an emergency on the strength of the"
+            " ASPCA's 'may need emergency care because of ... an insect sting'. That sentence"
+            " names causes, not emergencies, and the page never says a sting alone is"
+            " life-threatening. PLEASE ADJUDICATE the middle ground, which we now leave"
+            " uncovered: major or spreading swelling, a sting in the mouth or throat, many"
+            " stings at once, or facial swelling in an animal that is otherwise well. Merck"
+            " notes stings are most common on the face and in the mouth and describes systemic"
+            " effects from massive envenomation, but gives no threshold for seeking care, so we"
+            " have not invented one. What would you use?"
+        ),
     ),
     Rule(
         id="black_tarry_stool",
@@ -562,6 +980,7 @@ EMERGENCY_RULES: tuple[Rule, ...] = (
 WEIGHTED_RULES: tuple[Rule, ...] = (
     Rule(
         id="ear_neurological_signs",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
         # Ungated, for the same reason as the eye rule: a head tilt reads as a
         # "behaviour" problem to an owner, and used to be discarded when they
         # said so. Weighted rather than an emergency — see the reviewer note.
@@ -584,8 +1003,10 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
             _cite(
                 MERCK_OTITIS_MEDIA_INTERNA,
                 "lists head tilt, loss of coordination, circling, falling, nystagmus, hearing loss"
-                " and facial nerve paralysis among signs of middle or inner ear disease, and states"
-                " that treatment is most successful when started early in the disease course",
+                " and facial nerve paralysis among signs of middle or inner ear disease; states"
+                " that diagnosis begins with a complete history, a physical examination and, when"
+                " possible, an otoscopic examination; and that treatment is most successful when"
+                " started early in the disease course",
             ),
         ),
         headline="Veterinary examination recommended",
@@ -605,6 +1026,7 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
     ),
     Rule(
         id="ear_warning_signs",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
         # Every ear sign the form offers, evaluated on the sign alone. Gating
         # these on the owner having also chosen "ears" left five of them —
         # head shaking, odour, discharge, redness and pain — reachable only
@@ -669,15 +1091,18 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
                 " immediate attention",
             ),
         ),
+        extrapolations=frozenset({ExtrapolationKind.THRESHOLD}),
         reviewer_note=(
-            "Missouri frames lethargy alongside vomiting, so lethargy WITH a gastrointestinal sign"
-            " is now a separate emergency rule (gi_signs_with_extreme_lethargy). This rule covers"
-            " lethargy reported on its own, which no source we hold addresses. Should isolated"
-            " lethargy be graded like this, or does it warrant same-day care?"
+            "EXTRAPOLATION (threshold): Missouri frames lethargy alongside vomiting, so lethargy"
+            " WITH a gastrointestinal sign is now a separate emergency rule"
+            " (gi_signs_with_extreme_lethargy). This rule covers lethargy reported on its own,"
+            " which no source we hold addresses — the bar for acting on it is ours. Should"
+            " isolated lethargy be graded like this, or does it warrant same-day care?"
         ),
     ),
     Rule(
         id="increased_thirst",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
         condition=HasRedFlag(RedFlag.DRINKING_MUCH_MORE),
         message="A lasting increase in thirst is worth investigating.",
         # Weighted to reach amber on its own: the source treats increased thirst
@@ -693,9 +1118,27 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
     ),
     Rule(
         id="eye_signs_without_injury",
-        condition=Any_((ConcernIs(Concern.EYES), BodyAreaIn((BodyArea.EYE,)))),
-        message=_EYE_REASON,
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
+        # The three ordinary signs are triggers in their own right, not just
+        # extra detail, for the reason `eye_emergency_signs` gives above: the
+        # evidence attaches to the sign, not to the box the owner filed it
+        # under. Someone reporting a red, watering eye under "something else"
+        # reaches the same pathway as someone who picked "Eyes".
+        condition=Any_(
+            (
+                ConcernIs(Concern.EYES),
+                BodyAreaIn((BodyArea.EYE,)),
+                HasRedFlag(RedFlag.EYE_REDNESS),
+                HasRedFlag(RedFlag.EYE_WATERING),
+                HasRedFlag(RedFlag.EYE_IRRITATION),
+            )
+        ),
+        message=_EYE_CONCERN_REASON,
         weight=3,
+        # Merck calls acute glaucoma an ophthalmic emergency, so timing evidence
+        # for the eye pathway exists — though not for the 24 hours this rule
+        # names; see the reviewer note.
+        urgency_evidence=UrgencyEvidence.STATED,
         citations=(
             _cite(
                 VCA_EYE_ISSUES,
@@ -725,14 +1168,31 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
         ),
         urgent_care_signs=_EYE_URGENT_CARE_SIGNS,
         care_instructions=_EYE_CARE_INSTRUCTIONS,
+        extrapolations=frozenset({ExtrapolationKind.TIMING, ExtrapolationKind.MAPPING}),
         reviewer_note=(
-            "This pathway is for a new eye concern without a listed urgent warning sign. Injury,"
+            "EXTRAPOLATION (timing): the 24-hour figure in the headline is ours. VCA says eye signs need"
+            " prompt attention and Merck calls acute glaucoma an ophthalmic emergency; neither"
+            " names 24 hours for a new eye concern in general. Confirm the window or replace it."
+            " This pathway is for a new eye concern without a listed urgent warning sign. Injury,"
             " pain, clouding, pupil or vision change, bulging, abnormal discharge, chemical exposure,"
             " or rapid worsening are handled by the same-day urgent rule."
+            "\n      EXTRAPOLATION (mapping), NEWLY DECLARED — it was always here and was not"
+            " written down. VCA's page is about redness, watering and irritation. This rule also"
+            " fires on the bare fact that the owner picked 'Eyes' and ticked nothing, which is us"
+            " deciding that an unspecified eye concern is the thing VCA describes. Until"
+            " 2026-08-22 the rule then TOLD that owner about 'redness and watering', signs they"
+            " had never reported and the form had never offered; the form now asks about all"
+            " three and the message names no sign it was not given."
+            "\n      THE OPEN QUESTION IS WHETHER FIRING WITHOUT THEM IS RIGHT. A reviewer"
+            " proposed gating this rule on the three signs, so an eye concern with nothing ticked"
+            " would reach no rule and get our abstention. We have not done that, because it turns"
+            " a worried owner's 'something is wrong with her eye' into 'we can't assess this one'."
+            " Please rule on it: keep the rule firing on the concern alone, or gate it."
         ),
     ),
     Rule(
         id="persistent_or_worsening_ear_problem",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
         condition=All(
             (
                 _EAR_CONCERN,
@@ -774,8 +1234,10 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
         ),
         urgent_care_signs=_EAR_URGENT_CARE_SIGNS,
         care_instructions=_EAR_CARE_INSTRUCTIONS,
+        extrapolations=frozenset({ExtrapolationKind.TIMING}),
         reviewer_note=(
-            "EXTRAPOLATION: the sources support veterinary examination and cause-directed treatment"
+            "EXTRAPOLATION (timing): the sources support veterinary examination and cause-directed"
+            " treatment"
             " but do not set a universal 24-48 hour threshold. This cautious timing is triggered only"
             " by persistence, worsening, or specific ear signs and needs veterinary review."
         ),
@@ -790,6 +1252,7 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
         ),
         message="Refusing to put weight on a limb for more than a day needs veterinary attention.",
         weight=3,
+        urgency_evidence=UrgencyEvidence.STATED,
         citations=(
             _cite(
                 VCA_LIMPING,
@@ -813,6 +1276,7 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
         ),
         message="Limping that has lasted more than a day should be checked.",
         weight=3,
+        urgency_evidence=UrgencyEvidence.STATED,
         citations=(
             _cite(VCA_LIMPING, "states that if lameness persists for more than 24 hours, seek veterinary care"),
         ),
@@ -846,12 +1310,483 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
         ),
         message="Loose stool lasting more than a couple of days should be checked.",
         weight=3,
+        urgency_evidence=UrgencyEvidence.STATED,
         citations=(
             _cite(CORNELL_DIARRHOEA, "states that if loose stool lasts more than two days, call the vet"),
         ),
         applies_to_species=DOG_ONLY,
         reviewer_note="Our '2–7 days' band starts at day two, slightly earlier than Cornell's wording.",
     ),
+    Rule(
+        id="skin_lesion_needs_examination",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
+        # Ungated on the concern, like the eye and ear rules: an owner who files
+        # a bald, scabby patch under "something else" has still described a
+        # dermatological presentation, and the evidence attaches to the sign.
+        condition=Any_(tuple(HasRedFlag(flag) for flag in _SKIN_LESION_FLAGS)),
+        # Reads back only what the owner ticked. This used to list every
+        # presentation the rule covers, so someone reporting an itchy red patch
+        # was told about hair loss, crusting, nodules and lumps as well.
+        message=(
+            "You reported {reported}. Many skin diseases look alike, so appearance alone cannot "
+            "reliably identify the cause: it is worked out from the history — how long it has "
+            "gone on, how much your pet is licking or scratching, where the lesions are — "
+            "together with a complete physical examination."
+        ),
+        reported_signs=_SKIN_LESION_FLAGS,
+        weight=3,
+        citations=(
+            _cite(
+                MERCK_SKIN_DIAGNOSIS,
+                "states that a complete physical examination should always be performed to help"
+                " diagnose a skin disease, with very close inspection of all the hair and skin;"
+                " that many skin diseases look alike and a definitive diagnosis is made by"
+                " including or excluding possible causes and evaluating responses to treatment;"
+                " and lists duration, presence and severity of pruritus, progression and lesion"
+                " distribution among the dermatologic history",
+            ),
+            _cite(
+                MERCK_DERM_PROBLEMS,
+                "organises skin disease by presentation — pruritus, alopecia, scaling and"
+                " crusting, nodules or tumors, odor, erosions and ulcerations, and nonhealing"
+                " wounds — and records lesion distribution as focal, multifocal, symmetrical or"
+                " generalized",
+            ),
+        ),
+        headline=_SKIN_HEADLINE,
+        advice=_SKIN_ADVICE,
+        what_to_expect=_SKIN_WHAT_TO_EXPECT,
+        urgency_evidence=UrgencyEvidence.NOT_STATED,
+        # The recommendation itself is Merck's: a complete physical examination
+        # should always be performed to help diagnose a skin disease. What we
+        # add is deciding that "red and itchy" is a skin disease to diagnose.
+        extrapolations=frozenset(
+            {ExtrapolationKind.MAPPING, ExtrapolationKind.THRESHOLD}
+        ),
+        reviewer_note=(
+            "EXTRAPOLATION (mapping): Merck states what a clinician needs in order to diagnose a skin"
+            " problem — and 'a complete physical examination should always be performed' is close"
+            " to an instruction. Reading it as 'this animal should be booked in for one' is still"
+            " our step: the page addresses veterinarians and never tells an owner when to seek"
+            " care. The rule therefore carries no timeframe at all. Please confirm the level, and"
+            " say whether any of these presentations (a new lump, a rapidly enlarging swelling)"
+            " should be seen faster than the rest. Also: two cited pages cover animals generally,"
+            " but the rule is held to dogs and cats to match the rest of the table. Should skin"
+            " guidance extend to other species?"
+        ),
+    ),
+    Rule(
+        id="skin_infection_or_wound_signs",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
+        condition=Any_(tuple(HasRedFlag(flag) for flag in _SKIN_INFECTION_FLAGS)),
+        message=(
+            "You reported {reported}. Pus or discharge, a strong smell and broken or raw skin are "
+            "the signs Merck describes for bacterial skin infection. Which organism is involved "
+            "is established by testing a sample, and the treatment that works follows from that "
+            "result."
+        ),
+        reported_signs=_SKIN_INFECTION_FLAGS,
+        weight=3,
+        citations=(
+            _cite(
+                MERCK_PYODERMA,
+                "gives pain, crusting, odor and exudation of blood and pus as the hallmarks of"
+                " deep pyoderma in dogs, with erythema, swelling, ulcerations and draining tracts"
+                " also possible; states diagnosis rests on characteristic lesions plus"
+                " confirmation of bacteria, that cytological evaluation is one of the most"
+                " valuable tools, and that treatment should be based on culture and"
+                " susceptibility testing",
+            ),
+            _cite(
+                MERCK_DERM_PROBLEMS,
+                "names erosions and ulcerations, odor, and nonhealing wounds among the"
+                " dermatological presentations it organises skin disease by",
+            ),
+        ),
+        headline=_SKIN_HEADLINE,
+        advice=_SKIN_ADVICE,
+        what_to_expect=(
+            "Merck states that treatment for a bacterial skin infection should be based on the"
+            " results of culture and susceptibility testing — which product works is decided"
+            " after testing, not before it.",
+            *_SKIN_WHAT_TO_EXPECT,
+        ),
+        urgency_evidence=UrgencyEvidence.NOT_STATED,
+        extrapolations=frozenset(
+            {ExtrapolationKind.MAPPING, ExtrapolationKind.THRESHOLD}
+        ),
+        reviewer_note=(
+            "EXTRAPOLATION (mapping): deciding that the signs the owner ticked are the pyoderma"
+            " signs Merck describes is our step. PLEASE ADJUDICATE, two further questions."
+            " (1) Merck calls deep pyoderma 'more serious because"
+            " it expands into the dermis, with a higher risk of bacteremia', but gives no timing"
+            " and no emergency wording, so these signs are graded like the rest of the skin table."
+            " Should pus, odour and draining tracts be seen sooner than that? (2) An explicit 'do"
+            " not put leftover or over-the-counter products on this' warning was removed, because"
+            " no page we hold states it as a recommendation — only that treatment should follow"
+            " culture and susceptibility testing. Would you sign off such a warning in your own"
+            " name so it can go back in?"
+        ),
+    ),
+    Rule(
+        id="skin_problem_the_animal_cannot_leave_alone",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
+        condition=ItchLevelIn((ItchLevel.FREQUENT, ItchLevel.CANNOT_SETTLE)),
+        message=(
+            "You told us your pet is licking, scratching or chewing at it a great deal. Merck "
+            "records how severe that is as part of the dermatologic history, and states that "
+            "diseases beginning with itching can lead to self-trauma and then to secondary skin "
+            "lesions or infections."
+        ),
+        weight=3,
+        citations=(
+            _cite(
+                MERCK_SKIN_DIAGNOSIS,
+                "records the presence and severity of pruritus, as indicated by behaviors such as"
+                " licking, rubbing, scratching or chewing, among the dermatologic history, and"
+                " states that diseases that begin with pruritus can lead to self-trauma and"
+                " subsequent development of secondary skin lesions or infections",
+            ),
+            _cite(
+                MERCK_PRURITUS,
+                "defines pruritus as an unpleasant sensation that provokes the desire to scratch,"
+                " calls it the most common dermatological problem in small and large animals, and"
+                " states that diagnosis requires a methodical workup",
+            ),
+        ),
+        headline=_SKIN_HEADLINE,
+        advice=_SKIN_ADVICE,
+        what_to_expect=_SKIN_WHAT_TO_EXPECT,
+        urgency_evidence=UrgencyEvidence.NOT_STATED,
+        extrapolations=frozenset(
+            {ExtrapolationKind.MAPPING, ExtrapolationKind.THRESHOLD}
+        ),
+        reviewer_note=(
+            "EXTRAPOLATION (mapping), narrower than it was. Merck's skin-diagnosis page does record the"
+            " SEVERITY of pruritus as part of the history, so asking the question is sourced."
+            " What remains ours is the scale: four bands, and the line between 'sometimes' and"
+            " 'a lot' deciding whether this rule fires. Merck grades nothing and gives no"
+            " threshold. Where would you draw it?"
+        ),
+    ),
+    Rule(
+        id="skin_problem_affecting_another_animal_or_person",
+        diagnostic_evidence=DiagnosticEvidence.DESCRIBED,
+        condition=HasRedFlag(RedFlag.SKIN_CONTAGION),
+        message=(
+            "You told us another animal or a person at home has a skin problem too. Merck records "
+            "contact with possibly contagious animals as part of the history a skin diagnosis is "
+            "built on, and some skin infections spread between animals and to people."
+        ),
+        weight=3,
+        citations=(
+            _cite(
+                MERCK_SKIN_DIAGNOSIS,
+                "lists contact with other possibly contagious animals among the dermatologic"
+                " history, naming fleas, scabies, cheyletiellosis and dermatophytosis",
+            ),
+            _cite(
+                MERCK_DERMATOPHYTOSIS,
+                "states that dermatophytosis is a zoonotic disease transmitted by direct contact"
+                " with an infected animal, that no single test is a gold standard and multiple"
+                " tests are typically used to confirm infection, and that infected small animals"
+                " should remain isolated from other pets until there is clear evidence of"
+                " clinical cure",
+            ),
+        ),
+        headline=_SKIN_HEADLINE,
+        advice=_SKIN_ADVICE,
+        care_instructions=(
+            "Merck advises that an animal with a confirmed fungal skin infection be kept away from"
+            " other pets until there is clear evidence of cure. Whether that applies here depends"
+            " on what the examination finds.",
+        ),
+        what_to_expect=_SKIN_WHAT_TO_EXPECT,
+        urgency_evidence=UrgencyEvidence.NOT_STATED,
+        extrapolations=frozenset(
+            {ExtrapolationKind.MAPPING, ExtrapolationKind.THRESHOLD}
+        ),
+        reviewer_note=(
+            "EXTRAPOLATION (mapping): contact with possibly contagious animals is explicitly part of Merck's"
+            " dermatologic history, so collecting this is sourced. Treating it as a reason to"
+            " examine THIS animal is our step. Merck also calls dermatophytosis self-limiting in"
+            " otherwise healthy animals, resolving in 6-12 weeks, so nothing here makes contagion"
+            " time-critical. Is this the right level? A hand-washing instruction was removed for"
+            " lack of a source — would you sign one off?"
+        ),
+    ),
+)
+
+
+#: The signs Merck's emergency page and the ASPCA's emergency-care page list as
+#: needing emergency veterinary care. Used as the safety net on any result whose
+#: own rules supply no sourced urgent-care list — a skin answer, for instance,
+#: because nothing we hold states an urgency threshold for skin. These signs are
+#: sourced independently of whatever the owner came in about, and they do not
+#: stop being true because our rule table has a gap.
+@dataclass(frozen=True)
+class GeneralEmergencySign:
+    """One line of the safety-net list, and the page(s) that state it."""
+
+    text: str
+    sources: tuple[Source, ...]
+    #: The emergency questions this line answers for. Not decoration: the form
+    #: asks about a fixed set of emergency triggers, this list is what an owner
+    #: is told to come back for, and the two used to be maintained by hand
+    #: independently of each other. They had already drifted — the form asked
+    #: about a urinary blockage, a bloated abdomen with retching, blood in
+    #: vomit or stool, an eye injury and a limb that cannot move, and none of
+    #: the five appeared in the list shown afterwards. `covers` is what
+    #: `test_every_emergency_question_has_a_line_to_come_back_for` reads, so
+    #: adding a trigger to the form without a line here now fails the suite.
+    covers: tuple[RedFlag, ...] = ()
+    #: Whose emergency this is, where the source only establishes it for one
+    #: species — mirroring `applies_to_species` on the rules. A urethral
+    #: blockage is Cornell's claim about cats and GDV is Cornell's about dogs;
+    #: neither page speaks for the other animal, and this list is shown to
+    #: everyone.
+    species: frozenset[str] | None = None
+
+
+#: The safety net shown when a result's own rules supply no sourced urgent-care
+#: list. Attributed one line at a time, because they are not uniformly sourced:
+#: severe pain is Merck's, the gum colour and the seizure are the ASPCA's, and a
+#: reviewer checking the other page for either would come away empty. Several
+#: entries are situations rather than clinical signs, which is why the section
+#: is headed "Emergency warning signs or situations".
+GENERAL_EMERGENCY_SIGNS: tuple[GeneralEmergencySign, ...] = (
+    GeneralEmergencySign(
+        # Qualified to match the trigger it covers. An earlier version kept the
+        # bare "rapid or laboured" on the reasoning that an owner reads this
+        # line later, with the animal at rest by then — which is simply not
+        # true. They may read it straight after a walk, while the dog is hot,
+        # excited, or has just been carried to the car. Leaving it unqualified
+        # put the over-broad predicate back on the page one section below the
+        # question we had just narrowed, and the disclosure is the half that
+        # tells them when to act.
+        "Difficulty or laboured breathing, or breathing unusually fast while resting.",
+        (MERCK_EMERGENCY, ASPCA_EMERGENCY),
+        covers=(RedFlag.TROUBLE_BREATHING, RedFlag.RAPID_BREATHING_AT_REST),
+    ),
+    GeneralEmergencySign(
+        "Collapse, an inability to stand, or unresponsiveness.",
+        (ASPCA_EMERGENCY,),
+        covers=(RedFlag.COLLAPSE_OR_UNRESPONSIVE,),
+    ),
+    GeneralEmergencySign(
+        "Pale or white gums.", (ASPCA_EMERGENCY,), covers=(RedFlag.PALE_GUMS,)
+    ),
+    GeneralEmergencySign("A seizure.", (ASPCA_EMERGENCY,), covers=(RedFlag.SEIZURE,)),
+    GeneralEmergencySign(
+        "Bleeding that will not stop.",
+        (MERCK_EMERGENCY, ASPCA_EMERGENCY),
+        covers=(RedFlag.UNCONTROLLED_BLEEDING,),
+    ),
+    # Merck's list only. The ASPCA emergency page does not name pain as a
+    # threshold, and pairing both pages with this line implied that it did.
+    GeneralEmergencySign(
+        "Signs of severe pain.", (MERCK_EMERGENCY,), covers=(RedFlag.SEVERE_PAIN,)
+    ),
+    # ------------------------------------------------------------------
+    # The five below were asked about on the form and then missing from the
+    # list shown afterwards, so an owner whose dog developed a bloated abdomen
+    # an hour after a skin result was told nothing about it. Each carries the
+    # citation its own emergency rule already carries; none of them is a new
+    # claim, only a claim that was already being made in one place and not the
+    # other.
+    # ------------------------------------------------------------------
+    GeneralEmergencySign(
+        "An injury to the eye.",
+        (MERCK_EMERGENCY,),
+        covers=(RedFlag.EYE_INJURY,),
+    ),
+    GeneralEmergencySign(
+        "A suspected broken bone, or a limb that cannot move.",
+        (MERCK_EMERGENCY,),
+        covers=(RedFlag.LIMB_CANNOT_MOVE,),
+    ),
+    GeneralEmergencySign(
+        "Blood in vomit, or bloody or black tarry stool.",
+        (MISSOURI_VOMITING,),
+        covers=(RedFlag.BLOOD_IN_VOMIT_OR_STOOL, RedFlag.BLACK_TARRY_STOOL),
+    ),
+    # Named as a cat's emergency in the line itself as well as in `species`,
+    # because an owner who never told us the animal is shown every line.
+    GeneralEmergencySign(
+        "Straining to urinate while producing little or nothing. In a cat this can be a sign of "
+        "urethral obstruction, which Cornell calls a true medical emergency needing immediate "
+        "attention when it is suspected.",
+        (CORNELL_LUTD, ACVS_URINARY_OBSTRUCTION),
+        covers=(RedFlag.UNABLE_TO_URINATE,),
+        species=CAT_ONLY,
+    ),
+    GeneralEmergencySign(
+        "A swollen or bloated abdomen with retching that brings nothing up. In a dog this is a "
+        "sign of gastric dilatation-volvulus, which Cornell says is fatal without immediate "
+        "treatment.",
+        (CORNELL_GDV,),
+        covers=(RedFlag.BLOATED_ABDOMEN_WITH_RETCHING,),
+        species=DOG_ONLY,
+    ),
+    # "Call as soon as you suspect it" is the helpline's own instruction — it
+    # says to call if you THINK your pet has been poisoned, not once signs
+    # appear. The earlier wording ("even if your pet still seems well") went
+    # further than the emergency page it was shown beside.
+    GeneralEmergencySign(
+        "Suspected poisoning — the sources say to call as soon as you suspect it, rather than "
+        "waiting to see what happens.",
+        (MERCK_EMERGENCY, PET_POISON_HELPLINE),
+        covers=(RedFlag.SUSPECTED_POISONING,),
+    ),
+    # The ASPCA names severe trauma from an accident or fall; "an attack", and
+    # the warning that follows it, are Merck's trauma page.
+    GeneralEmergencySign(
+        "Major trauma — hit by a car, a fall, or an attack by another animal. An animal that "
+        "seems unhurt can still have serious internal injury.",
+        (ASPCA_EMERGENCY, MERCK_TRAUMA),
+        covers=(RedFlag.MAJOR_TRAUMA,),
+    ),
+    # "Heatstroke", not "overheating": both pages name heat STROKE, and neither
+    # establishes that being too hot is the same emergency.
+    GeneralEmergencySign(
+        "Suspected heatstroke.",
+        (MERCK_EMERGENCY, ASPCA_EMERGENCY),
+        covers=(RedFlag.OVERHEATING,),
+    ),
+    GeneralEmergencySign("Choking.", (ASPCA_EMERGENCY,), covers=(RedFlag.CHOKING,)),
+    # Not "an insect sting": the ASPCA names the sting as a cause a pet MAY
+    # need emergency care because of, and its emergency SIGNS are the list
+    # above. What belongs here is the reaction.
+    GeneralEmergencySign(
+        "A sting followed by breathing difficulty, weakness or collapse, pale gums, or a seizure.",
+        (ASPCA_EMERGENCY, MERCK_STINGS),
+        covers=(RedFlag.INSECT_STING_REACTION,),
+    ),
+)
+
+class ScreeningBehaviour(str, enum.Enum):
+    """What reporting an emergency-screening trigger, on its own, means.
+
+    Two of them, because the form has always had both and only one was
+    modelled. "Stung by an insect" is a question we ask, and a sting on its own
+    is deliberately NOT an emergency: the ASPCA names a sting among the causes
+    a pet MAY need emergency care because of, and never says a sting alone is
+    life-threatening. The rule therefore reads sting AND a systemic sign.
+
+    That difference used to live in a test's exception list, where a maintainer
+    reading the rule table would never find it, and where the test could only
+    say "this flag is allowed not to be red" rather than "here is the predicate
+    it is red under". It is a property of the clinical model, so it is declared
+    with the model.
+    """
+
+    #: Reporting this alone is an emergency.
+    EMERGENCY = "emergency"
+    #: Reporting this alone is not. It escalates only with `escalates_with`.
+    CONDITIONAL = "conditional"
+
+
+@dataclass(frozen=True)
+class EmergencyScreeningTrigger:
+    """One emergency question the form asks, and what our model does with it."""
+
+    flag: RedFlag
+    behaviour: ScreeningBehaviour
+    #: CONDITIONAL only: the signs that turn it into an emergency. Every one of
+    #: them must itself appear in `GENERAL_EMERGENCY_SIGNS`, or an owner told
+    #: "come back if the reaction starts" has nowhere to read what the reaction
+    #: looks like.
+    escalates_with: tuple[RedFlag, ...] = ()
+    #: The animals this CLAIM covers, where the limit is clinical. GDV is a
+    #: condition of dogs; that is a fact about the disease.
+    claim_species: frozenset[str] | None = None
+    #: Words that must survive into everything the owner reads about this
+    #: trigger — the form's label, the reason on the card, and the safety-net
+    #: line. Set where the trigger is deliberately narrower than the bare sign,
+    #: which is exactly where the three copies drift apart without anyone
+    #: noticing: the identifier `rapid_breathing_at_rest` stayed put in all
+    #: three places while one of them quietly said "rapid breathing".
+    owner_facing_qualifier: str | None = None
+    #: Set instead when the scope above is narrower than the clinical trigger
+    #: because OUR CITATIONS are species-bound, not because the claim is — the
+    #: distinction a reviewer drew about urinary obstruction, and one the model
+    #: could not previously express. Names the candidate holding the open
+    #: question, so the gap cannot be forgotten and cannot be closed in one
+    #: place only.
+    citation_bound_to: str | None = None
+
+
+#: The emergency triggers the intake form asks about, and their behaviour.
+#:
+#: The form asks these in two questions — "is your pet showing any of these
+#: right now?" and "has anything happened to them recently?" — and its own
+#: copies of the lists live in `SymptomIntakeForm.tsx`, because the labels and
+#: the ordering are a UI decision. What must not be a second opinion is which
+#: triggers exist and what each one means, so this is the declaration and
+#: `tests/eval/test_safety_invariants.py` checks the form, the rule table and
+#: the safety-net list against it.
+EMERGENCY_SCREENING: tuple[EmergencyScreeningTrigger, ...] = (
+    EmergencyScreeningTrigger(RedFlag.TROUBLE_BREATHING, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(
+        RedFlag.RAPID_BREATHING_AT_REST,
+        ScreeningBehaviour.EMERGENCY,
+        owner_facing_qualifier="while resting",
+    ),
+    EmergencyScreeningTrigger(RedFlag.COLLAPSE_OR_UNRESPONSIVE, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.PALE_GUMS, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.SEIZURE, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.UNCONTROLLED_BLEEDING, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.SEVERE_PAIN, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.EYE_INJURY, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.LIMB_CANNOT_MOVE, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.BLOOD_IN_VOMIT_OR_STOOL, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.MAJOR_TRAUMA, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.OVERHEATING, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.CHOKING, ScreeningBehaviour.EMERGENCY),
+    EmergencyScreeningTrigger(RedFlag.SUSPECTED_POISONING, ScreeningBehaviour.EMERGENCY),
+    # Clinically a dog's emergency: Cornell describes GDV as a life-threatening
+    # condition of dogs and Merck says it primarily affects large and giant
+    # breeds. The narrowing is the claim's, not our library's.
+    EmergencyScreeningTrigger(
+        RedFlag.BLOATED_ABDOMEN_WITH_RETCHING,
+        ScreeningBehaviour.EMERGENCY,
+        claim_species=DOG_ONLY,
+    ),
+    # No longer narrowed. This trigger carried `claim_species=CAT_ONLY` and a
+    # `citation_bound_to` pointing at an open candidate, for the reason the
+    # field exists: straining while producing nothing is a blockage sign in
+    # more than one species, and what was cat-only was our reading list, not
+    # the claim. Dogs are now covered by `dog_unable_to_urinate` on ACVS's dog
+    # article and Merck's obstruction page, so both qualifiers come off and the
+    # trigger means what it always should have: an emergency for either animal.
+    EmergencyScreeningTrigger(
+        RedFlag.UNABLE_TO_URINATE,
+        ScreeningBehaviour.EMERGENCY,
+    ),
+    # The one conditional trigger. Asked because the reaction is what we screen
+    # on; red only with the reaction.
+    EmergencyScreeningTrigger(
+        RedFlag.INSECT_STING_REACTION,
+        ScreeningBehaviour.CONDITIONAL,
+        escalates_with=(
+            RedFlag.TROUBLE_BREATHING,
+            RedFlag.RAPID_BREATHING_AT_REST,
+            RedFlag.COLLAPSE_OR_UNRESPONSIVE,
+            RedFlag.PALE_GUMS,
+            RedFlag.SEIZURE,
+            RedFlag.BLOOD_IN_VOMIT_OR_STOOL,
+        ),
+    ),
+)
+
+#: Just the flags, for the parity check against the form.
+EMERGENCY_SCREENING_FLAGS: frozenset[RedFlag] = frozenset(
+    trigger.flag for trigger in EMERGENCY_SCREENING
+)
+
+GENERAL_EMERGENCY_NOTE = (
+    "These are our general emergency screening signs and situations, each with the page that "
+    "states it. They do not come from the sources behind the result above."
 )
 
 

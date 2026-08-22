@@ -24,8 +24,12 @@ from app.models.animal import AgeCategory
 from app.schemas.triage import (
     BodyArea,
     Concern,
+    ConfidenceKind,
+    ConfidenceLevel,
     Duration,
+    ItchLevel,
     RedFlag,
+    SkinSpread,
     SymptomIntake,
     TimeSinceEating,
     TriageLevel,
@@ -34,6 +38,17 @@ from app.schemas.triage import (
 from app.services.triage import TriageEngine
 
 engine = TriageEngine(require_verified=False)
+
+
+def dimension(result, name: str):
+    """One named certainty dimension out of a result's confidence report."""
+    assert result.confidence is not None, "No confidence report on this result."
+    for entry in result.confidence.dimensions:
+        if entry.name == name:
+            return entry
+    raise AssertionError(
+        f"No dimension named {name!r}; got {[d.name for d in result.confidence.dimensions]}"
+    )
 
 _SEVERITY_ORDER = {
     TriageLevel.GREEN: 0,
@@ -479,12 +494,15 @@ VIGNETTES: tuple[Vignette, ...] = (
             species="cat",
             age_category=AgeCategory.ADULT,
         ),
-        expected=TriageLevel.UNASSESSED,
+        expected=TriageLevel.AMBER,
         rationale=(
-            "Below Cornell's 24-hour threshold for a mature cat — but the page states no level for"
-            " a shorter fast, so 'below the threshold' is not the same as 'safe to watch'. Reading"
-            " it that way was an inference. The engine abstains, and what a cat that has skipped"
-            " one meal should be told is on the veterinary-adjudication list."
+            "Below Cornell's 24-hour threshold for a mature cat, and the page states no level for"
+            " a shorter fast — so 'below the threshold' is still not the same as 'safe to watch',"
+            " and this case is not green. What changed on 2026-08-22 is that it is no longer"
+            " unassessed either: the same page says a cat that is not eating deserves a full"
+            " veterinary workup, without conditioning that on a duration, so `cat_not_eating`"
+            " answers amber. The remaining question for a veterinarian is not whether this cat"
+            " needs a vet but how fast, since Cornell's own word is 'immediately'."
         ),
     ),
     Vignette(
@@ -632,7 +650,11 @@ def test_uncovered_cases_are_declared_not_reassured():
     result = engine.assess(uncovered)
     assert result.fired_rules == []
     assert "can't assess" in result.headline.lower()
-    assert "not the same as saying your pet is fine" in result.advice
+    assert "can assess confidently" in result.advice
+    assert "not a sign that the problem is minor" in result.advice
+    # The abstention must name itself as our gap, and must not be readable as
+    # "nothing serious" — the sentence that carries that is the one under test.
+    assert "not a sign that the problem is minor" in result.advice
 
 
 def test_dog_eye_result_is_24_hour_species_appropriate_guidance():
@@ -746,6 +768,894 @@ def test_ear_neurological_signs_are_graded_and_reach_the_rules_ungated():
         assert "same-day" not in result.headline.lower(), (
             "No cited source establishes same-day urgency for vestibular signs."
         )
+
+
+def test_a_described_skin_problem_is_assessed_rather_than_abstained_on():
+    """The reported case: dog, skin or coat, legs or paws, 2-7 days, unchanged.
+
+    That combination used to return "we can't assess this one", because the
+    only things it told the engine were a location, a duration and a trajectory
+    — never what was actually on the skin. Merck's dermatology framework defines
+    a skin case by its lesions, so the form now asks, and the rules read it.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            body_area=BodyArea.LEGS_OR_PAWS,
+            duration=Duration.DAYS_2_7,
+            trend=Trend.UNCHANGED,
+            red_flags=[RedFlag.SKIN_ITCHING, RedFlag.SKIN_REDNESS],
+            itch_level=ItchLevel.FREQUENT,
+            skin_spread=SkinSpread.SEVERAL_AREAS,
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.AMBER
+    assert "skin_lesion_needs_examination" in {rule.rule_id for rule in result.fired_rules}
+    assert result.urgent_care_signs
+    assert result.what_to_expect
+
+    # The explanation must quote what this owner reported. It used to list every
+    # presentation the rule covers, so someone reporting an itchy red patch was
+    # also told about hair loss, crusting, nodules and lumps.
+    explanation = next(
+        rule.message for rule in result.fired_rules
+        if rule.rule_id == "skin_lesion_needs_examination"
+    )
+    assert "itching, licking or chewing and redness" in explanation
+    for unreported in ("hair loss", "crusting", "nodule", "lump"):
+        assert unreported not in explanation.lower(), (
+            f"The explanation mentions {unreported!r}, which this owner did not report."
+        )
+
+
+def test_no_skin_answer_states_a_timeframe():
+    """Merck's dermatology pages give no timing, so neither may we.
+
+    Every other pathway in the table that recommends a visit has a source that
+    at least says "seek veterinary care". The skin pages say what a diagnosis
+    requires and nothing about when, so a skin-only result must recommend an
+    examination without attaching hours or days to it.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            red_flags=[RedFlag.SKIN_HAIR_LOSS],
+            species="cat",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.AMBER
+    text = f"{result.headline} {result.advice}".lower()
+    for timing in ("24 hours", "24-48", "same-day", "today", "next few days", "immediately"):
+        assert timing not in text, f"A skin result claimed a timeframe: {timing!r}"
+
+
+def test_skin_infection_advice_states_the_source_rather_than_a_derived_warning():
+    """The bullet has to be the page's claim, not a prudent-sounding inference.
+
+    This rule used to tell owners "do not use leftover skin medicine". Nothing
+    we hold says that. What Merck does say is that treatment should be based on
+    culture and susceptibility testing, so that is what the owner is told, and
+    the explicit warning is on the reviewer's list to sign off in their name.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            red_flags=[RedFlag.SKIN_DISCHARGE_OR_PUS, RedFlag.SKIN_ODOR],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert "skin_infection_or_wound_signs" in {rule.rule_id for rule in result.fired_rules}
+    everything = " ".join([*result.care_instructions, *result.what_to_expect]).lower()
+    assert "culture and susceptibility testing" in everything
+    assert "do not use leftover" not in everything
+
+
+def test_a_skin_problem_someone_else_caught_is_answered_with_the_isolation_advice():
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            red_flags=[RedFlag.SKIN_SCABS_OR_FLAKING, RedFlag.SKIN_CONTAGION],
+            species="cat",
+            age_category=AgeCategory.YOUNG,
+        )
+    )
+
+    assert "skin_problem_affecting_another_animal_or_person" in {
+        rule.rule_id for rule in result.fired_rules
+    }
+    instructions = " ".join(result.care_instructions).lower()
+    assert "away from other pets" in instructions
+    # A hand-washing line was removed: sensible, but no page we hold recommends
+    # it, and this rule exists to keep unsourced advice out.
+    assert "wash your hands" not in instructions
+
+
+def test_an_undescribed_skin_problem_abstains_and_names_the_question_that_would_help():
+    """The abstention has to be useful, not just honest.
+
+    Same case as above with the skin never described. The engine still refuses
+    to place it on the scale — but it can say exactly which unanswered question
+    would let it, because it re-runs the assessment with each possible answer
+    filled in.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            body_area=BodyArea.LEGS_OR_PAWS,
+            duration=Duration.DAYS_2_7,
+            trend=Trend.UNCHANGED,
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.UNASSESSED
+    assert result.fired_rules == []
+    # The sourced emergency list is independent of the gap and still applies.
+    assert result.urgent_care_signs
+    assert result.confidence is not None
+    assert dimension(result, "Rule match").level is ConfidenceLevel.LOW
+    assert "what you can see on the skin" in result.confidence.would_change_the_answer
+
+
+def test_confidence_is_high_for_an_emergency_and_admits_nothing_would_lower_it():
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.BREATHING,
+            red_flags=[RedFlag.TROUBLE_BREATHING],
+            species="dog",
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    assert dimension(result, "Evidence for how urgent this is").level is ConfidenceLevel.HIGH
+    assert result.confidence.would_change_the_answer == []
+
+
+def test_confidence_reports_the_unknown_species_as_a_limit_on_the_answer():
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.DIGESTION,
+            red_flags=[RedFlag.NOT_EATING],
+            duration=Duration.DAYS_2_7,
+            species=None,
+        )
+    )
+
+    assert result.confidence is not None
+    based_on = " ".join(result.confidence.based_on).lower()
+    assert "did not tell us which animal" in based_on
+    assert "which animal this is" in result.confidence.would_change_the_answer
+
+
+def test_a_skin_answer_reports_its_urgency_evidence_as_absent():
+    """The dimension an owner might act on must not be hidden in an average.
+
+    A skin case can match our rules perfectly and still rest on no urgency
+    evidence at all, because none of the dermatology pages says how soon. Those
+    are different questions and they are reported separately.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            body_area=BodyArea.BACK,
+            duration=Duration.WEEKS_1_4,
+            trend=Trend.UNCHANGED,
+            red_flags=[RedFlag.SKIN_HAIR_LOSS],
+            itch_level=ItchLevel.OCCASIONAL,
+            skin_spread=SkinSpread.ONE_AREA,
+            has_chronic_illness=False,
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert dimension(result, "Rule match").level is ConfidenceLevel.HIGH
+
+    # Two different questions, and the answers differ. Merck states outright how
+    # the cause of a skin disease is identified — that is strong. It never says
+    # that a mild, localised patch crosses the bar for an appointment rather
+    # than being watched, and that is the half the owner acts on.
+    assert dimension(result, "Evidence that examination is part of identifying the cause").level is (
+        ConfidenceLevel.HIGH
+    )
+    action = dimension(result, "Evidence that this presentation should be examined")
+    assert action.level is ConfidenceLevel.MODERATE
+    assert "rather than watched" in action.detail
+    assert any("our step, not theirs" in line for line in result.confidence.based_on)
+    urgency = dimension(result, "Evidence for how urgent this is")
+    assert urgency.level is ConfidenceLevel.LOW
+    assert "how soon" in urgency.detail
+    assert dimension(result, "Veterinary review").level is ConfidenceLevel.LOW
+
+
+def test_the_rule_match_line_is_not_rated_in_the_same_words_as_the_evidence():
+    """The panel's most reassuring word must not be its least meaningful one.
+
+    "Match to your answers: Strong" sat at the top of the certainty panel on
+    exactly this case — above a recommendation whose supporting evidence was
+    Partial and whose urgency evidence was nothing at all. Both were rendered
+    from one vocabulary, so the first word an owner read was the strongest one
+    on the card, attached to the only line that says nothing about whether the
+    advice is any good. The kinds keep them apart, in the payload and in the
+    words the card picks from it.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            body_area=BodyArea.LEGS_OR_PAWS,
+            duration=Duration.DAYS_2_7,
+            trend=Trend.UNCHANGED,
+            red_flags=[RedFlag.SKIN_ITCHING, RedFlag.SKIN_REDNESS, RedFlag.SKIN_HAIR_LOSS],
+            itch_level=ItchLevel.OCCASIONAL,
+            skin_spread=SkinSpread.ONE_AREA,
+            has_chronic_illness=False,
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    match = dimension(result, "Rule match")
+    assert match.kind is ConfidenceKind.MATCH
+    assert match.level is ConfidenceLevel.HIGH
+    # And it says so itself, for anyone reading the payload rather than the card.
+    assert "not about how well the recommendation" in match.detail
+
+    action = dimension(result, "Evidence that this presentation should be examined")
+    assert action.kind is ConfidenceKind.EVIDENCE
+    assert action.level is ConfidenceLevel.MODERATE
+    assert dimension(result, "Veterinary review").kind is ConfidenceKind.REVIEW
+
+
+def test_a_mild_skin_case_says_no_emergency_sign_was_reported_before_anything_else():
+    """The one thing they want settled first, said first.
+
+    An owner has just been asked about seizures, collapse and pale gums. That
+    the answer to all of them was "no" was previously inferable only from the
+    card's colour and from the absence of alarm in three sections of evidence
+    reporting, while the eleven-item emergency list sat below the result either
+    way.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            body_area=BodyArea.LEGS_OR_PAWS,
+            duration=Duration.DAYS_2_7,
+            trend=Trend.UNCHANGED,
+            red_flags=[RedFlag.SKIN_ITCHING, RedFlag.SKIN_REDNESS],
+            itch_level=ItchLevel.OCCASIONAL,
+            species="dog",
+            # The owner answered the emergency step. Without this the line is
+            # withheld, because an empty flag list is not an answer.
+            emergency_screen_answered=True,
+        )
+    )
+
+    assert result.level is TriageLevel.AMBER
+    assert result.screening_note is not None
+    assert "did not select any of the emergency warning signs" in result.screening_note.lower()
+    # And it says so without claiming the checklist settled the question.
+    assert "cannot rule out every emergency" in result.screening_note.lower()
+    # A restatement of their answers and of what our screening did with them —
+    # never the clinical claim that emergencies have been excluded, which a
+    # finite checklist coming back negative does not establish.
+    assert "is not an emergency" not in result.screening_note
+    assert "non-emergency" not in result.screening_note
+
+
+def test_an_emergency_result_carries_no_reassuring_screening_line():
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.BREATHING,
+            red_flags=[RedFlag.TROUBLE_BREATHING],
+            species="dog",
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    assert result.screening_note is None
+
+
+def test_an_unassessed_result_does_not_call_itself_a_non_emergency():
+    """It screened the emergency signs and nothing else. Both halves matter.
+
+    Saying "assessed as a non-emergency" here would hand back, in the screening
+    line, the reassurance the whole branch exists to withhold.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            body_area=BodyArea.LEGS_OR_PAWS,
+            duration=Duration.DAYS_2_7,
+            trend=Trend.UNCHANGED,
+            species="dog",
+            emergency_screen_answered=True,
+        )
+    )
+
+    assert result.level is TriageLevel.UNASSESSED
+    assert result.screening_note is not None
+    assert "did not select any of the emergency warning signs" in result.screening_note.lower()
+    assert "non-emergency" not in result.screening_note
+
+
+def test_skin_rules_carry_no_urgent_care_list_of_their_own():
+    """Diagnostic significance is not urgency evidence.
+
+    The skin rules used to carry a "when to get urgent help" list — oozing,
+    strong odour, spreading quickly, becoming lethargic. Every line was
+    plausible and none was sourced: the pages establish that those signs matter
+    when working out a cause, not that they mean the animal should be seen
+    faster. The list is gone, and results fall back to the general emergency
+    signs, which are sourced independently of the skin problem.
+    """
+    from app.services.triage.rules import ALL_RULES, GENERAL_EMERGENCY_SIGNS
+
+    for rule in ALL_RULES:
+        if rule.id.startswith("skin_"):
+            assert rule.urgent_care_signs == (), (
+                f"{rule.id} carries its own urgent-care list. No page we hold sets an urgency "
+                "threshold for a skin sign."
+            )
+
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            red_flags=[RedFlag.SKIN_HAIR_LOSS],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+    # Every line except the ones whose source speaks only for the other animal:
+    # Cornell's urethral-obstruction claim is about cats, and this is a dog.
+    assert [sign.text for sign in result.urgent_care_signs] == [
+        sign.text
+        for sign in GENERAL_EMERGENCY_SIGNS
+        if sign.species is None or "dog" in sign.species
+    ]
+
+
+def test_the_general_emergency_list_says_where_it_came_from():
+    """A result's source list must not appear to cover advice it never sourced.
+
+    The skin pages establish nothing about emergencies, so when a skin answer
+    borrows the general emergency signs it has to say so and carry their own
+    sources — otherwise one merged list at the foot of the page reads as though
+    Merck's dermatology article had endorsed all nine.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            red_flags=[RedFlag.SKIN_HAIR_LOSS],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.urgent_care_signs
+    assert result.urgent_care_note is not None
+    assert "do not come from the sources behind the result above" in result.urgent_care_note
+
+    # Every line names the page that states it, and they are NOT all the same
+    # page: severe pain is Merck's, the gums and the seizure are the ASPCA's.
+    # Attributing all of them to both pages jointly implied a reviewer would
+    # find each line on either one.
+    for sign in result.urgent_care_signs:
+        assert sign.sources, f"{sign.text!r} carries no source."
+        assert all(source.url.startswith("https://") for source in sign.sources)
+
+    def sources_for(fragment: str) -> set[str]:
+        sign = next(s for s in result.urgent_care_signs if fragment in s.text.lower())
+        return {source.name for source in sign.sources}
+
+    assert sources_for("severe pain") == {
+        "Merck Veterinary Manual - What to Do in a Dog or Cat Emergency"
+    }
+    assert "ASPCA - Emergency Care for Your Pet" in sources_for("pale or white gums")
+
+    # A pathway with its own sourced list keeps it, and claims no borrowing.
+    eye = engine.assess(
+        SymptomIntake(
+            concern=Concern.EYES,
+            body_area=BodyArea.EYE,
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+    assert eye.urgent_care_signs
+    assert eye.urgent_care_note is None
+    # Its own list, carried by the citations of the rule that produced it.
+    assert all(sign.sources for sign in eye.urgent_care_signs)
+
+
+def test_explanatory_notes_are_not_filed_as_care_instructions():
+    """"Care until the appointment" has to contain care, not explanation."""
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.SKIN_OR_COAT,
+            red_flags=[RedFlag.SKIN_ITCHING],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.what_to_expect, "The skin pathway explains what a diagnosis involves."
+    assert result.care_instructions == [], (
+        "Nothing here tells the owner how to care for the animal, so nothing should be filed "
+        "under care instructions."
+    )
+    # And a rule that does give home care still carries it.
+    ear = engine.assess(
+        SymptomIntake(
+            concern=Concern.EARS,
+            body_area=BodyArea.EAR,
+            red_flags=[RedFlag.EAR_ODOR],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+    assert any("dry" in item.lower() for item in ear.care_instructions)
+
+
+def test_a_timing_extrapolation_is_reported_as_partial_urgency_evidence():
+    """The eye pathway names 24 hours; no page we hold does. Say so."""
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.EYES,
+            body_area=BodyArea.EYE,
+            duration=Duration.DAYS_2_7,
+            trend=Trend.UNCHANGED,
+            has_chronic_illness=False,
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert "24 hours" in result.headline.lower()
+    urgency = dimension(result, "Evidence for how urgent this is")
+    assert urgency.level is ConfidenceLevel.MODERATE
+    assert "ours rather than theirs" in urgency.detail
+
+
+def test_a_sting_does_not_make_a_mild_skin_problem_an_emergency():
+    """The reported false positive: an exposure treated as an emergency sign.
+
+    Dog, one itchy red paw for several days, not worsening, none of the
+    emergency signs ticked — and, in the accident question, "stung by an
+    insect". That came back as "Contact a vet now", with an emergency service
+    suggested, on the strength of the ASPCA naming a sting among the causes a
+    pet MAY need emergency care because of. The same form's emergency screen had
+    just returned nothing, and the two answers contradicted each other.
+    """
+    mild = SymptomIntake(
+        concern=Concern.SKIN_OR_COAT,
+        body_area=BodyArea.LEGS_OR_PAWS,
+        duration=Duration.DAYS_2_7,
+        trend=Trend.UNCHANGED,
+        red_flags=[RedFlag.SKIN_ITCHING, RedFlag.SKIN_REDNESS, RedFlag.INSECT_STING_REACTION],
+        itch_level=ItchLevel.OCCASIONAL,
+        skin_spread=SkinSpread.ONE_AREA,
+        species="dog",
+        age_category=AgeCategory.ADULT,
+    )
+    result = engine.assess(mild)
+
+    assert result.level is TriageLevel.AMBER, (
+        f"A sting with mild local signs was returned as {result.level.value}."
+    )
+    assert "sting_with_emergency_signs" not in {rule.rule_id for rule in result.fired_rules}
+
+    # The reaction is what escalates, and it still does.
+    reacting = mild.model_copy(
+        update={"red_flags": [*mild.red_flags, RedFlag.TROUBLE_BREATHING]}
+    )
+    escalated = engine.assess(reacting)
+    assert escalated.level is TriageLevel.RED
+    assert "sting_with_emergency_signs" in {rule.rule_id for rule in escalated.fired_rules}
+
+
+def test_a_sting_alone_is_declared_rather_than_escalated_or_dismissed():
+    """No source covers the middle ground, so the engine says so."""
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.OTHER,
+            red_flags=[RedFlag.INSECT_STING_REACTION],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.UNASSESSED
+    assert result.urgent_care_signs, "The sourced emergency signs are still shown."
+
+
+def test_the_red_headline_and_advice_agree_about_how_fast():
+    """"Contact a vet today" sat above "call now, or an out-of-hours service"."""
+    result = engine.assess(
+        SymptomIntake(concern=Concern.BREATHING, red_flags=[RedFlag.TROUBLE_BREATHING], species="dog")
+    )
+    assert result.level is TriageLevel.RED
+    assert "today" not in result.headline.lower()
+    assert "now" in result.headline.lower()
+
+
+def test_vomiting_duration_alone_no_longer_claims_missouris_clause():
+    """Sick once a day for three days is not "attempts to vomit continue for 24 hours".
+
+    A red rule used to fire on vomiting plus any duration band past "today",
+    quoting a Missouri clause the form had never established. The clause is now
+    asked about directly, and duration alone supports nothing for vomiting.
+    """
+    duration_only = SymptomIntake(
+        concern=Concern.DIGESTION,
+        duration=Duration.DAYS_2_7,
+        trend=Trend.WORSENING,
+        has_chronic_illness=False,
+        red_flags=[RedFlag.VOMITING],
+        species="cat",
+        age_category=AgeCategory.ADULT,
+    )
+    result = engine.assess(duration_only)
+    assert result.level is not TriageLevel.RED
+    assert not any("24 hours" in rule.message for rule in result.fired_rules)
+
+    # Asked and answered, it is red again — on the clause itself.
+    reported = duration_only.model_copy(
+        update={"red_flags": [RedFlag.VOMITING, RedFlag.VOMITING_MANY_TIMES]}
+    )
+    escalated = engine.assess(reported)
+    assert escalated.level is TriageLevel.RED
+    assert "profuse_vomiting_in_a_day" in {rule.rule_id for rule in escalated.fired_rules}
+
+
+def test_marked_lethargy_with_vomiting_carries_the_result_on_its_own():
+    """The reported case: one rule, not two, and still 'contact a vet now'."""
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.DIGESTION,
+            duration=Duration.DAYS_2_7,
+            trend=Trend.WORSENING,
+            has_chronic_illness=False,
+            red_flags=[RedFlag.VOMITING, RedFlag.EXTREME_LETHARGY],
+            species="cat",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    assert [rule.rule_id for rule in result.fired_rules] == ["gi_signs_with_extreme_lethargy"]
+
+    # Missouri's page is about how fast to act. It says nothing about how the
+    # cause is identified, and the report must not borrow another pathway's
+    # sources to answer that.
+    diagnosis = dimension(result, "Evidence that examination is part of identifying the cause")
+    # NOT_ASSESSED rather than LOW: this rule was never asked the question, and
+    # "None" is what the panel says when a question was asked of the sources
+    # and they did not answer it.
+    assert diagnosis.level is ConfidenceLevel.NOT_ASSESSED
+    assert "Not assessed" in diagnosis.detail
+    assert result.confidence is not None
+    assert any("1 rule from our sourced table" in line for line in result.confidence.based_on)
+    # The owner's words are not Missouri's, and the answer says so.
+    assert any("our step, not theirs" in line for line in result.confidence.based_on)
+
+
+def test_an_emergency_tells_the_owner_to_travel_not_only_to_phone():
+    """The prominent action said "call"; the heatstroke section said "travel".
+
+    The ASPCA's own instruction is to bring the animal in and have someone else
+    phone ahead, so the two halves of the answer now say the same thing.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.BREATHING,
+            duration=Duration.TODAY,
+            trend=Trend.WORSENING,
+            red_flags=[
+                RedFlag.TROUBLE_BREATHING,
+                RedFlag.OVERHEATING,
+                RedFlag.EXTREME_LETHARGY,
+            ],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    advice = result.advice.lower()
+    assert "take your pet to a veterinary clinic now" in advice
+    assert "call ahead" in advice
+    assert any("travel to a veterinary clinic" in item.lower() for item in result.care_instructions)
+
+
+def _breathing_reason(flag: RedFlag, rule_id: str) -> str:
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.BREATHING,
+            red_flags=[flag],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+    assert result.level is TriageLevel.RED
+    return next(rule.message for rule in result.fired_rules if rule.rule_id == rule_id).lower()
+
+
+def test_each_breathing_answer_gets_its_own_reason_and_its_own_publisher():
+    """One option, "breathing hard or fast", used to collect two different signs.
+
+    It fired one unconditional emergency rule citing Merck's "trouble breathing"
+    and the ASPCA's "rapid breathing" together, as though each page supported
+    the whole of what the question collected. They do not: a dog that has just
+    run breathes hard and fast, and only one of the two readings survives
+    without a qualifier. The question is now two questions and the evidence
+    follows each of them separately.
+    """
+    laboured = _breathing_reason(RedFlag.TROUBLE_BREATHING, "trouble_breathing")
+    assert "difficult or laboured" in laboured
+    assert "trouble breathing" in laboured
+    assert "rapid breathing" not in laboured
+
+    rapid = _breathing_reason(RedFlag.RAPID_BREATHING_AT_REST, "rapid_breathing_at_rest")
+    # The qualifier is the whole point of the split and must reach the owner.
+    assert "while resting" in rapid
+    assert "rapid breathing" in rapid
+    assert "trouble breathing" not in rapid
+
+
+def test_no_breathing_rule_still_fires_on_an_unqualified_hard_or_fast():
+    """The retired wording must not come back through any rule's message."""
+    from app.services.triage.rules import ALL_RULES
+
+    for rule in ALL_RULES:
+        assert "hard or fast" not in rule.message.lower(), (
+            f"{rule.id} still describes breathing as 'hard or fast' without qualification. That "
+            "question was split because it could not tell distress from panting after exercise."
+        )
+
+
+def test_an_emergency_reported_in_a_follow_up_question_is_still_an_emergency():
+    """The first screen is a UI section, not a stored "no emergencies" verdict.
+
+    This test used to forbid ANY intake field with "emergency" in its name, on
+    the grounds that the form moved breathing, pale gums, choking and collapse
+    out of the emergency screen and into the concern follow-up — so that screen
+    could legitimately end with nothing ticked while the next one collected an
+    emergency sign, and a stored "no emergency signs" answer would have been a
+    lie the engine could act on.
+
+    Both halves of that have changed. The emergency step is now universal and
+    no follow-up repeats one of its signs, and `emergency_screen_answered` was
+    added for a purpose that is not clinical at all: it decides whether the
+    result may say "you did not select any of the emergency warning signs",
+    which is a claim about what the owner did and cannot be read off an empty
+    list. The wall the old assertion built is still worth having, so it is
+    rebuilt here as the thing it was actually protecting — the field may exist,
+    and it may not move the verdict.
+    """
+    emergency_fields = {name for name in SymptomIntake.model_fields if "emergency" in name}
+    assert emergency_fields == {"emergency_screen_answered"}, (
+        "SymptomIntake has grown another field about emergencies. The flags are the only "
+        f"clinical record; found {sorted(emergency_fields)}."
+    )
+
+    # It is display-only, and this is what proves it: the same answers, screened
+    # or not, reach the same level every time.
+    for answers in (
+        SymptomIntake(concern=Concern.BREATHING, red_flags=[RedFlag.TROUBLE_BREATHING], species="dog"),
+        SymptomIntake(concern=Concern.SKIN_OR_COAT, red_flags=[RedFlag.SKIN_ITCHING], species="dog"),
+        SymptomIntake(concern=Concern.MOBILITY, red_flags=[], species="cat"),
+    ):
+        levels = {
+            engine.assess(answers.model_copy(update={"emergency_screen_answered": screened})).level
+            for screened in (None, True, False)
+        }
+        assert len(levels) == 1, (
+            f"answering the emergency screen changed the verdict for {answers.concern}: {levels}"
+        )
+
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.BREATHING,
+            duration=Duration.TODAY,
+            trend=Trend.WORSENING,
+            # As the form would send it: nothing from the emergency screen,
+            # because the emergency screen never offered these.
+            red_flags=[RedFlag.RAPID_BREATHING_AT_REST, RedFlag.EXTREME_LETHARGY],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    # And the reassuring screening line is withheld, as on any red result.
+    assert result.screening_note is None
+
+
+def test_the_blocked_cat_rule_cites_a_page_that_covers_cats_not_only_males():
+    """The form never asks the cat's sex, so the rule must not need it.
+
+    This rule cited only the ACVS's "Urinary Obstruction in Male Cats". The
+    disposition was right and the applicability was not: nothing established
+    that the cat in front of the owner was male. Cornell's page covers cats,
+    names males as higher risk rather than the only ones affected, and states
+    the emergency in its own words.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.URINATION,
+            duration=Duration.TODAY,
+            trend=Trend.WORSENING,
+            red_flags=[RedFlag.UNABLE_TO_URINATE],
+            species="cat",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    fired = next(rule for rule in result.fired_rules if rule.rule_id == "unable_to_urinate")
+    names = " ".join(fired.sources)
+    assert "Feline Lower Urinary Tract Disease" in names
+    # The message used to carry "an emergency in any cat", which was how this
+    # test checked the answer did not read as male-only. It now says nothing
+    # about sex at all, which is the same guarantee more directly: the rule
+    # fires on the sign, and nothing in what the owner is shown asks them to
+    # decide whether their cat is the kind the ACVS page is about.
+    message = fired.message.lower()
+    assert "male" not in message
+    assert "suspected obstruction requires immediate veterinary attention" in message
+
+
+def test_the_eye_pathway_never_describes_a_sign_the_owner_did_not_report():
+    """The reviewer's finding: "Eyes" alone produced advice about redness and watering.
+
+    Both eye rules shared one message that opened "Redness and watering are not
+    specific to one condition". Those are VCA's words for what its page covers,
+    not the owner's answers — and the form did not offer redness or watering as
+    answers at all, so nobody reaching that message could have reported them.
+    """
+    bare_concern = engine.assess(SymptomIntake(concern=Concern.EYES, species="dog"))
+    message = " ".join(rule.message for rule in bare_concern.fired_rules).lower()
+    assert message, "expected the eye concern to still reach a rule"
+    for invented in ("redness", "watering", "irritation"):
+        assert invented not in message, (
+            f"the owner reported no signs, and is being told about {invented!r}"
+        )
+
+    # A sign that WAS reported is quoted back, which is the other half of the
+    # same guarantee: honest about what we were told, in both directions.
+    cloudy = engine.assess(
+        SymptomIntake(
+            concern=Concern.EYES,
+            red_flags=[RedFlag.EYE_CLOUDY_OR_BLUE],
+            species="dog",
+        )
+    )
+    cloudy_message = " ".join(rule.message for rule in cloudy.fired_rules).lower()
+    assert "cloudy or blue area on the eye" in cloudy_message
+    assert "redness" not in cloudy_message
+    assert "watering" not in cloudy_message
+
+
+def test_ordinary_eye_signs_can_now_be_reported_and_reach_the_eye_pathway():
+    """Redness, watering and irritation are answers, not just rule wording."""
+    result = engine.assess(
+        SymptomIntake(
+            # Filed under "something else" on purpose: the evidence attaches to
+            # the sign, not to the category the owner chose for it.
+            concern=Concern.OTHER,
+            red_flags=[RedFlag.EYE_REDNESS, RedFlag.EYE_WATERING],
+            species="dog",
+        )
+    )
+
+    assert result.level is TriageLevel.AMBER
+    assert any(rule.rule_id == "eye_signs_without_injury" for rule in result.fired_rules)
+
+
+def test_a_dog_straining_to_urinate_is_an_emergency():
+    """The gap a reviewer found: this exact case used to reach no rule at all.
+
+    "Dog -> Toilet trouble -> straining to urinate, producing little or nothing"
+    returned our abstention, because every urinary page the library held was
+    feline. It was never a judgement that dogs were different; ACVS publishes
+    the same article for dogs and Merck's obstruction page covers both species,
+    and neither had been opened.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.URINATION,
+            duration=Duration.TODAY,
+            red_flags=[RedFlag.UNABLE_TO_URINATE],
+            species="dog",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    fired = next(rule for rule in result.fired_rules if rule.rule_id == "dog_unable_to_urinate")
+    names = " ".join(fired.sources)
+    assert "Urinary Obstruction in Dogs" in names
+    assert "suspected obstruction requires immediate veterinary attention" in fired.message.lower()
+
+
+def test_the_dog_and_cat_urinary_rules_rest_on_their_own_species_evidence():
+    """Neither species rule may be answered out of the other one's pages."""
+    dog = engine.assess(
+        SymptomIntake(
+            concern=Concern.URINATION,
+            red_flags=[RedFlag.UNABLE_TO_URINATE],
+            species="dog",
+        )
+    )
+    cat = engine.assess(
+        SymptomIntake(
+            concern=Concern.URINATION,
+            red_flags=[RedFlag.UNABLE_TO_URINATE],
+            species="cat",
+        )
+    )
+
+    dog_sources = " ".join(source for rule in dog.fired_rules for source in rule.sources)
+    cat_sources = " ".join(source for rule in cat.fired_rules for source in rule.sources)
+
+    # The feline pages are about cats; a dog owner must not be shown them as
+    # the reason, which is the mistake the species scope exists to prevent.
+    assert "Feline Lower Urinary Tract Disease" not in dog_sources
+    assert "Urinary Obstruction in Male Cats" not in dog_sources
+    assert "Urinary Obstruction in Dogs" not in cat_sources
+
+
+def test_straining_to_urinate_is_urgent_even_when_the_species_is_unknown():
+    """Red for a dog and red for a cat must not become silence in between.
+
+    Merck states the claim for small animals rather than for one species, so
+    the rule carrying that page is not narrowed and answers an intake that
+    never said which animal it is.
+    """
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.URINATION,
+            red_flags=[RedFlag.UNABLE_TO_URINATE],
+            species=None,
+        )
+    )
+
+    assert result.level is TriageLevel.RED
+    assert any(
+        rule.rule_id == "unable_to_urinate_either_species" for rule in result.fired_rules
+    )
+
+
+def test_an_unassessed_diagnostic_dimension_claims_nothing_about_the_pages():
+    """"Not assessed" is about our record, not about what a page contains."""
+    result = engine.assess(
+        SymptomIntake(
+            concern=Concern.URINATION,
+            red_flags=[RedFlag.UNABLE_TO_URINATE],
+            species="cat",
+            age_category=AgeCategory.ADULT,
+        )
+    )
+
+    diagnosis = dimension(result, "Evidence that examination is part of identifying the cause")
+    assert diagnosis.level is ConfidenceLevel.NOT_ASSESSED
+    assert "Not assessed for this rule" in diagnosis.detail
+    # The ACVS page does have a diagnostics section; we must not say otherwise.
+    assert "do not describe" not in diagnosis.detail
+
+
+def test_breed_only_carries_no_confidence_report():
+    """Nothing was asked, so there is no answer to be confident about."""
+    result = engine.assess(SymptomIntake(concern=Concern.BREED_ONLY, species="dog"))
+    assert result.confidence is None
 
 
 def test_breed_only_is_not_treated_as_an_uncovered_case():

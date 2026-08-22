@@ -209,6 +209,50 @@ export function BanIcon(props: IconProps) {
   );
 }
 
+/*
+ * Urgency icons. The triage card pairs each level with one of these so the
+ * level is carried by shape and words as well as colour — a red and an amber
+ * card are otherwise distinguishable only by hue.
+ */
+
+export function AlertTriangleIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </IconBase>
+  );
+}
+
+export function CheckCircleIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+    </IconBase>
+  );
+}
+
+export function QuestionCircleIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.5a2.5 2.5 0 1 1 3.2 2.4c-.6.2-1 .8-1 1.5v.3" />
+      <path d="M12 17h.01" />
+    </IconBase>
+  );
+}
+
+/** Used inside selection chips, so a choice reads as chosen without colour. */
+export function CheckIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m5 12.5 4.5 4.5L19 7" />
+    </IconBase>
+  );
+}
+
 export function GavelIcon(props: IconProps) {
   return (
     <IconBase {...props}>

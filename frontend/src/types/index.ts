@@ -245,6 +245,7 @@ export type Trend = "worsening" | "unchanged" | "improving";
 
 export type RedFlag =
   | "trouble_breathing"
+  | "rapid_breathing_at_rest"
   | "severe_pain"
   | "uncontrolled_bleeding"
   | "suspected_poisoning"
@@ -255,6 +256,9 @@ export type RedFlag =
   | "eye_bulging_or_severe_swelling"
   | "eye_discharge_yellow_green_or_bloody"
   | "eye_chemical_exposure"
+  | "eye_redness"
+  | "eye_watering"
+  | "eye_irritation"
   | "ear_head_shaking_or_scratching"
   | "ear_odor"
   | "ear_discharge"
@@ -269,6 +273,21 @@ export type RedFlag =
   | "ear_bloody_or_pus_discharge"
   | "ear_self_injury"
   | "ear_foreign_body"
+  // Merck integumentary system — what is actually on the skin. "Skin or coat"
+  // on its own is the owner's category for the problem, not a description of
+  // it, and the rule table reads these instead.
+  | "skin_itching"
+  | "skin_redness"
+  | "skin_hair_loss"
+  | "skin_rash_or_bumps"
+  | "skin_scabs_or_flaking"
+  | "skin_swelling"
+  | "skin_lump"
+  | "skin_nail_or_pad_change"
+  | "skin_open_wound"
+  | "skin_discharge_or_pus"
+  | "skin_odor"
+  | "skin_contagion"
   | "limb_cannot_move"
   | "seizure"
   | "collapse_or_unresponsive"
@@ -282,6 +301,7 @@ export type RedFlag =
   | "blood_in_vomit_or_stool"
   | "black_tarry_stool"
   | "vomiting"
+  | "vomiting_many_times"
   | "diarrhoea"
   | "extreme_lethargy"
   | "not_eating"
@@ -301,6 +321,57 @@ export type TimeSinceEating = "under_12h" | "h12_to_24h" | "over_24h";
  */
 export type TriageLevel = "red" | "amber" | "green" | "unassessed";
 
+/** How much a skin problem is bothering the animal. Our bands, not Merck's. */
+export type ItchLevel = "none" | "occasional" | "frequent" | "cannot_settle";
+
+/** How widely a skin problem is distributed. Recorded for the vet; scores nothing. */
+export type SkinSpread = "one_area" | "several_areas" | "widespread";
+
+/**
+ * "not_assessed" is deliberately not "low". Low means we looked and the sources
+ * do not support it; not_assessed means the question was never in scope for the
+ * rule that answered. They were rendered in the same word ("None"), which told
+ * an owner that evidence had been sought and found missing.
+ */
+export type ConfidenceLevel = "high" | "moderate" | "low" | "not_assessed";
+
+/**
+ * Which question a dimension answers. Three unrelated ones share the panel and
+ * they were rated in one shared vocabulary, so "Match to your answers: Strong"
+ * read as confidence in the advice when it only meant a rule's conditions were
+ * met. Each kind is now worded in its own terms.
+ */
+export type ConfidenceKind = "match" | "evidence" | "review";
+
+/** One thing we can be more or less sure of, rated on its own. */
+export interface ConfidenceDimension {
+  name: string;
+  level: ConfidenceLevel;
+  detail: string;
+  /** Absent on checks stored before the kinds existed; treated as evidence. */
+  kind?: ConfidenceKind;
+}
+
+/*
+ * How far the answer can be relied on — deliberately not one number.
+ * "Moderate confidence" reads as "moderately sure something is wrong with your
+ * pet", which is a claim about the animal rather than about our evidence, and it
+ * buries the dimension an owner might actually act on: a case can match our
+ * rules perfectly and still rest on no urgency evidence at all.
+ */
+export interface ConfidenceReport {
+  dimensions: ConfidenceDimension[];
+  based_on: string[];
+  /** Questions left unanswered whose answers would have changed the level. */
+  would_change_the_answer: string[];
+}
+
+/** One "get help now" line, with the page that states it. */
+export interface UrgentSign {
+  text: string;
+  sources: Array<{ name: string; url: string }>;
+}
+
 export interface SymptomIntake {
   concern: Concern;
   body_area?: BodyArea | null;
@@ -308,8 +379,16 @@ export interface SymptomIntake {
   trend?: Trend | null;
   red_flags: RedFlag[];
   time_since_eating?: TimeSinceEating | null;
+  itch_level?: ItchLevel | null;
+  skin_spread?: SkinSpread | null;
   has_chronic_illness?: boolean | null;
   weight_bearing?: boolean | null;
+  /**
+   * Whether the owner actually answered the emergency screen. Display-only:
+   * it decides whether the result may say they selected none of the emergency
+   * signs, and never affects the level. Absent on checks stored before it.
+   */
+  emergency_screen_answered?: boolean | null;
   /** Filled from the linked pet by the backend for historical records. */
   species?: string | null;
   age_category?: AgeCategory | null;
@@ -326,14 +405,25 @@ export interface FiredRule {
 export interface TriageAssessment {
   level: TriageLevel;
   headline: string;
+  /**
+   * Whether what the owner described tripped an emergency rule, said before
+   * anything else. Null on a red result and on checks stored before it existed.
+   */
+  screening_note?: string | null;
   score: number;
   threshold: number;
   fired_rules: FiredRule[];
   advice: string;
-  urgent_care_signs: string[];
+  urgent_care_signs: UrgentSign[];
+  /** Set when the urgent-care list is the general one, not the fired rules' own. */
+  urgent_care_note?: string | null;
   care_instructions: string[];
+  /** Explanatory notes about the appointment — not instructions to follow. */
+  what_to_expect?: string[];
   disclaimer: string;
   rules_fully_verified: boolean;
+  /** Absent on checks stored before confidence reporting existed. */
+  confidence?: ConfidenceReport | null;
 }
 
 /** A symptom check saved to the owner's history (no photo involved). */

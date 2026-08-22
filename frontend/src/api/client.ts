@@ -94,9 +94,26 @@ export class ApiError extends Error {
   }
 }
 
+/*
+ * A 5xx is our fault, not the caller's, and nothing it carries is actionable by
+ * an owner: FastAPI's default body is the bare string "Internal Server Error",
+ * and a proxy in front of a stopped backend sends no JSON at all, which used to
+ * surface as "Request failed with status 500". Both become a retry prompt, so
+ * the server detail is deliberately dropped above 499 rather than shown.
+ */
+function serverErrorMessage(status: number): string {
+  if (status === 503 || status === 502 || status === 504) {
+    return "The service is temporarily unavailable. Please try again in a moment.";
+  }
+  return "Something went wrong on our side. Please try again in a moment.";
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    let detail = `Request failed with status ${response.status}`;
+    if (response.status >= 500) {
+      throw new ApiError(response.status, serverErrorMessage(response.status));
+    }
+    let detail = "Something went wrong with that request. Please try again.";
     try {
       const body = (await response.json()) as { detail?: unknown };
       if (typeof body.detail === "string") detail = body.detail;

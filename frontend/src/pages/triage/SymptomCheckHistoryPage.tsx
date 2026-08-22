@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  Modal,
   Select,
   Spinner,
   useToast,
@@ -28,18 +29,24 @@ const LEVEL_VARIANT: Record<TriageLevel, "danger" | "warning" | "success" | "neu
 function describeConcern(check: SymptomCheck): string {
   const concern = check.intake?.concern;
   if (!concern || concern === "breed_only") return "Symptom check";
+  if (concern === "other") return "Something else";
   return capitalize(concern.replace(/_/g, " "));
 }
 
 function HistoryRow({ check, onDeleted }: { check: SymptomCheck; onDeleted: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [removing, setRemoving] = useState(false);
+  // Deletion is permanent and the server keeps no copy, so it is asked for
+  // rather than acted on: the button used to call the API on the first click,
+  // which put an unrecoverable action one stray tap away.
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const { toast } = useToast();
 
   const handleDelete = async () => {
     setRemoving(true);
     try {
       await deleteSymptomCheck(check.id);
+      setConfirmOpen(false);
       toast("Symptom check deleted.", "success");
       onDeleted();
     } catch (err) {
@@ -74,13 +81,22 @@ function HistoryRow({ check, onDeleted }: { check: SymptomCheck; onDeleted: () =
             <Button variant="secondary" size="sm" onClick={() => setExpanded((open) => !open)}>
               {expanded ? "Hide details" : "Show details"}
             </Button>
-            <Button variant="secondary" size="sm" onClick={handleDelete} disabled={removing}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setConfirmOpen(true)}
+              disabled={removing}
+            >
               {removing ? "Deleting…" : "Delete"}
             </Button>
           </div>
           {expanded && (
             <div className="mt-4">
-              <TriageResultCard triage={check.triage} />
+              <TriageResultCard
+                triage={check.triage}
+                answers={check.intake ?? null}
+                petLabel={check.animal ? check.animal.name : null}
+              />
             </div>
           )}
         </>
@@ -91,6 +107,27 @@ function HistoryRow({ check, onDeleted }: { check: SymptomCheck; onDeleted: () =
           This verdict was saved under an older version of the rules and can no longer be shown.
         </p>
       )}
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title="Delete this symptom check?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={removing} onClick={() => void handleDelete()}>
+              Delete check
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          This permanently removes the “{describeConcern(check)}” symptom check from{" "}
+          {formatRelativeTime(check.created_at)}, including the advice saved with it.
+        </p>
+      </Modal>
     </li>
   );
 }

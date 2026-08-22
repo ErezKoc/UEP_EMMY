@@ -15,6 +15,7 @@ from app.schemas.triage import (
     BodyArea,
     Concern,
     Duration,
+    ItchLevel,
     RedFlag,
     SymptomIntake,
     TimeSinceEating,
@@ -112,6 +113,31 @@ class NotEatingFor:
             TimeSinceEating.OVER_24H: "more than 24 hours",
         }
         return "it has not eaten for " + " or ".join(labels[b] for b in self.buckets)
+
+
+_ITCH_LABELS: dict[ItchLevel, str] = {
+    ItchLevel.NONE: "not obviously bothered by it",
+    ItchLevel.OCCASIONAL: "licking or scratching occasionally",
+    ItchLevel.FREQUENT: "licking or scratching frequently",
+    ItchLevel.CANNOT_SETTLE: "unable to settle because of it",
+}
+
+
+@dataclass(frozen=True)
+class ItchLevelIn:
+    """How much the skin is bothering the animal.
+
+    The bands are the product's own — Merck describes pruritus but grades no
+    severity — so any rule using this must say so to its reviewer.
+    """
+
+    levels: tuple[ItchLevel, ...]
+
+    def matches(self, intake: SymptomIntake) -> bool:
+        return intake.itch_level in self.levels
+
+    def describe(self) -> str:
+        return "the animal is " + " or ".join(_ITCH_LABELS[level] for level in self.levels)
 
 
 @dataclass(frozen=True)

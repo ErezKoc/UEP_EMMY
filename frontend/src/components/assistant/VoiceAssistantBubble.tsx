@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { processAssistantCommand } from "../../api/client";
 import { useToast } from "../ui/toast";
 import type { AssistantAction } from "../../types";
@@ -14,6 +14,7 @@ interface Message {
 
 export default function VoiceAssistantBubble() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -219,8 +220,26 @@ export default function VoiceAssistantBubble() {
     submitCommand(null, inputText.trim());
   };
 
+  /*
+   * Out of the way on the symptom checker, on phones.
+   *
+   * A floating control anchored to the bottom-right corner sits on top of
+   * whatever is behind it, and on a 390px viewport that is answer chips, the
+   * validation message under a question, and the Back/Continue row. On a form
+   * someone is filling in about a sick animal, an assistant launcher is not
+   * worth a single obscured answer. It stays on every other page, and returns
+   * here at `sm` and above where there is room beside the content.
+   */
+  const hideOnMobile = location.pathname.startsWith("/symptom-check");
+
   return (
-    <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end">
+    <div
+      className={`fixed bottom-6 right-6 z-[9999] flex-col items-end ${
+        hideOnMobile ? "hidden sm:flex" : "flex"
+      }`}
+      // Keeps the launcher clear of the home indicator on notched phones.
+      style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
+    >
       {/* Floating Chat Modal */}
       {isOpen && (
         <div className="mb-4 flex h-[520px] w-96 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10 transition-all duration-200 ease-out">
@@ -372,11 +391,20 @@ export default function VoiceAssistantBubble() {
         </div>
       )}
 
-      {/* Floating Trigger Bubble */}
+      {/*
+        Floating Trigger Bubble.
+
+        The label is desktop-only. On a phone the pill was wide enough to sit on
+        top of the answer chips behind it — a symptom checker asking someone to
+        tap a sign they cannot see — so below `sm` this collapses to the circular
+        microphone alone and keeps its accessible name in aria-label.
+      */}
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="group flex items-center gap-2.5 rounded-full bg-gradient-to-r from-primary-600 to-teal-600 px-4 py-3 text-white shadow-xl ring-4 ring-white transition-all hover:scale-105 active:scale-95"
+        aria-label={isOpen ? "Close Assistant" : "Voice Assistant"}
+        aria-expanded={isOpen}
+        className="group flex items-center gap-2.5 rounded-full bg-gradient-to-r from-primary-600 to-teal-600 p-3 text-white shadow-xl ring-4 ring-white transition-all hover:scale-105 active:scale-95 sm:px-4 sm:py-3"
       >
         <span className="relative flex h-6 w-6 items-center justify-center text-lg">
           🎙️
@@ -385,7 +413,7 @@ export default function VoiceAssistantBubble() {
             <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-400" />
           </span>
         </span>
-        <span className="text-sm font-semibold tracking-wide">
+        <span className="hidden text-sm font-semibold tracking-wide sm:inline">
           {isOpen ? "Close Assistant" : "Voice Assistant"}
         </span>
       </button>

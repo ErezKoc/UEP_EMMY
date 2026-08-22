@@ -60,6 +60,42 @@ ACVS_URINARY_OBSTRUCTION = Source(
     CAT_ONLY,
 )
 
+# Read 2026-08-22, to close the gap recorded as candidate
+# `urinary_obstruction_outside_cats`: a dog straining and producing nothing
+# matched no rule, because every urinary page we held was about cats. ACVS
+# publishes the same article for dogs, and Merck's obstruction page is written
+# for both species. Neither was ever unavailable to us; nobody had opened them.
+ACVS_URINARY_OBSTRUCTION_DOGS = Source(
+    "American College of Veterinary Surgeons - Urinary Obstruction in Dogs",
+    "https://www.acvs.org/small-animal/urinary-obstruction-in-dogs/",
+    DOG_ONLY,
+    date(2026, 8, 22),
+)
+
+MERCK_URETHRAL_OBSTRUCTION = Source(
+    "Merck Veterinary Manual - Urethral Obstruction in Small Animals",
+    "https://www.merckvetmanual.com/urinary-system/urolithiasis-in-small-animals"
+    "/urethral-obstruction-in-small-animals",
+    DOG_AND_CAT,
+    date(2026, 8, 22),
+)
+
+CORNELL_LUTD = Source(
+    "Cornell Feline Health Center - Feline Lower Urinary Tract Disease",
+    "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center"
+    "/health-information/feline-health-topics/feline-lower-urinary-tract-disease",
+    CAT_ONLY,
+    date(2026, 8, 18),
+)
+
+CORNELL_LUTD = Source(
+    "Cornell Feline Health Center - Feline Lower Urinary Tract Disease",
+    "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center"
+    "/health-information/feline-health-topics/feline-lower-urinary-tract-disease",
+    CAT_ONLY,
+    date(2026, 8, 18),
+)
+
 CORNELL_GDV = Source(
     "Cornell Riney Canine Health Center - Gastric dilatation volvulus (GDV) or bloat",
     "https://www.vet.cornell.edu/departments-centers-and-institutes/riney-canine-health-center"
@@ -171,6 +207,67 @@ PET_POISON_HELPLINE = Source(
     date(2026, 8, 7),
 )
 
+# Dermatology. Read 2026-08-18. All four are professional-manual articles with a
+# named board-certified dermatologist author and a named peer reviewer, and none
+# of them states how quickly an animal should be seen — so they support "this
+# needs examining" and no timing claim at all.
+
+MERCK_DERM_PROBLEMS = Source(
+    "Merck Veterinary Manual - Dermatological Problems in Animals",
+    "https://www.merckvetmanual.com/integumentary-system/integumentary-system-introduction"
+    "/dermatological-problems-in-animals",
+    # The page organises skin disease for animals generally, not dogs and cats.
+    None,
+    date(2026, 8, 18),
+)
+
+MERCK_PRURITUS = Source(
+    "Merck Veterinary Manual - Pruritus in Animals",
+    "https://www.merckvetmanual.com/integumentary-system/integumentary-system-introduction"
+    "/pruritus-in-animals",
+    None,
+    date(2026, 8, 18),
+)
+
+MERCK_STINGS = Source(
+    "Merck Veterinary Manual - Wasp, Bee, and Ant Stings to Animals",
+    "https://www.merckvetmanual.com/toxicology/bites-and-stings-from-spiders-scorpions-and-insects"
+    "/wasp-bee-and-ant-stings-to-animals",
+    DOG_AND_CAT,
+    date(2026, 8, 18),
+)
+
+MERCK_TRAUMA = Source(
+    "Merck Veterinary Manual - Trauma in Emergency Medicine in Small Animals",
+    "https://www.merckvetmanual.com/emergency-medicine-and-critical-care"
+    "/specific-diagnostics-and-therapy/trauma-in-emergency-medicine-in-small-animals",
+    DOG_AND_CAT,
+    date(2026, 8, 18),
+)
+
+MERCK_SKIN_DIAGNOSIS = Source(
+    "Merck Veterinary Manual - Diagnosis of Skin Diseases in Small Animals",
+    "https://www.merckvetmanual.com/integumentary-system/integumentary-system-introduction"
+    "/diagnosis-of-skin-diseases-in-small-animals",
+    DOG_AND_CAT,
+    date(2026, 8, 18),
+)
+
+MERCK_PYODERMA = Source(
+    "Merck Veterinary Manual - Pyoderma in Dogs and Cats",
+    "https://www.merckvetmanual.com/integumentary-system/pyoderma/pyoderma-in-dogs-and-cats",
+    DOG_AND_CAT,
+    date(2026, 8, 18),
+)
+
+MERCK_DERMATOPHYTOSIS = Source(
+    "Merck Veterinary Manual - Dermatophytosis in Dogs and Cats",
+    "https://www.merckvetmanual.com/integumentary-system/dermatophytosis"
+    "/dermatophytosis-in-dogs-and-cats",
+    DOG_AND_CAT,
+    date(2026, 8, 18),
+)
+
 ALL_SOURCES = (
     MERCK_EMERGENCY,
     ASPCA_EMERGENCY,
@@ -178,6 +275,10 @@ ALL_SOURCES = (
     PET_POISON_HELPLINE,
     CORNELL_ANOREXIA,
     ACVS_URINARY_OBSTRUCTION,
+    ACVS_URINARY_OBSTRUCTION_DOGS,
+    MERCK_URETHRAL_OBSTRUCTION,
+    CORNELL_LUTD,
+    CORNELL_LUTD,
     CORNELL_GDV,
     MISSOURI_VOMITING,
     VCA_THIRST,
@@ -193,4 +294,11 @@ ALL_SOURCES = (
     MERCK_AURICULAR_HEMATOMA,
     VCA_ANOREXIA_DOGS,
     VCA_LIMPING,
+    MERCK_STINGS,
+    MERCK_TRAUMA,
+    MERCK_DERM_PROBLEMS,
+    MERCK_PRURITUS,
+    MERCK_SKIN_DIAGNOSIS,
+    MERCK_PYODERMA,
+    MERCK_DERMATOPHYTOSIS,
 )

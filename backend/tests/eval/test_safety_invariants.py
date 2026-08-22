@@ -13,6 +13,7 @@ from __future__ import annotations
 import itertools
 import random
 import re
+from pathlib import Path
 
 import pytest
 
@@ -29,6 +30,14 @@ from app.schemas.triage import (
 )
 from app.services.triage import TriageEngine
 from app.services.triage.engine import DISCLAIMER
+from app.services.triage.candidates import CANDIDATE_RULES
+from app.services.triage.rules import (
+    ALL_RULES,
+    EMERGENCY_SCREENING,
+    EMERGENCY_SCREENING_FLAGS,
+    GENERAL_EMERGENCY_SIGNS,
+    ScreeningBehaviour,
+)
 from tests.eval import evidence as ev
 from tests.eval.cases import CASES
 from tests.eval.oracle import CAUTION_ORDER, GENERAL_EMERGENCY_FLAGS, normalise_species
@@ -44,6 +53,280 @@ REASSURANCE_MARKERS = (
 
 def _level(intake: SymptomIntake) -> TriageLevel:
     return engine.assess(intake).level
+
+
+# =========================================================================
+# The form and the result must screen for the same emergencies
+#
+# Three lists used to be maintained by hand and independently: the questions
+# the form asks, the rules that read the answers, and the "come back if this
+# happens" list shown afterwards. They had drifted. The form asked about a
+# urinary blockage, a bloated abdomen with retching, blood in vomit or stool,
+# an eye injury and a limb that cannot move; the list shown to an owner
+# afterwards named none of the five, so someone told their dog's itchy paw was
+# a non-emergency had no way to learn that a bloated abdomen an hour later was.
+#
+# `EMERGENCY_SCREENING_FLAGS` is now the declaration and these tests are what
+# keeps the other two honest.
+# =========================================================================
+
+
+def test_every_emergency_question_has_a_line_to_come_back_for():
+    covered = {flag for sign in GENERAL_EMERGENCY_SIGNS for flag in sign.covers}
+    missing = sorted(flag.value for flag in EMERGENCY_SCREENING_FLAGS - covered)
+
+    assert not missing, (
+        "The form asks about these emergencies and the safety-net list shown afterwards names "
+        f"none of them: {missing}. Add a line to GENERAL_EMERGENCY_SIGNS carrying the citation "
+        "its own emergency rule already carries, and mark it `covers=`."
+    )
+
+
+def test_no_safety_net_line_claims_to_cover_something_we_never_ask_about():
+    """The other direction: a line covering a question nobody is asked.
+
+    Not a safety defect, but it means `covers` has stopped describing reality,
+    and the test above is only worth what `covers` is worth.
+    """
+    covered = {flag for sign in GENERAL_EMERGENCY_SIGNS for flag in sign.covers}
+    # BLACK_TARRY_STOOL rides along on the blood-in-stool line, which is how
+    # Missouri words it; it is asked elsewhere in the form, not as one of the
+    # emergency triggers.
+    stray = sorted(
+        flag.value for flag in covered - EMERGENCY_SCREENING_FLAGS - {RedFlag.BLACK_TARRY_STOOL}
+    )
+    assert not stray, f"GENERAL_EMERGENCY_SIGNS covers questions the form never asks: {stray}"
+
+
+def _levels_reported_alone(flag: RedFlag) -> dict[str, TriageLevel]:
+    """The verdict for that flag and nothing else, per animal."""
+    return {
+        species: engine.assess(
+            SymptomIntake(concern=Concern.OTHER, red_flags=[flag], species=species)
+        ).level
+        for species in ("dog", "cat")
+    }
+
+
+def _covered_species(trigger) -> set[str]:
+    return {"dog", "cat"} if trigger.claim_species is None else set(trigger.claim_species)
+
+
+UNCONDITIONAL = [t for t in EMERGENCY_SCREENING if t.behaviour is ScreeningBehaviour.EMERGENCY]
+CONDITIONAL = [t for t in EMERGENCY_SCREENING if t.behaviour is ScreeningBehaviour.CONDITIONAL]
+
+
+@pytest.mark.parametrize("trigger", UNCONDITIONAL, ids=lambda t: t.flag.value)
+def test_an_unconditional_emergency_question_is_red_for_every_animal_it_claims(trigger):
+    """Declared as an emergency on its own, so it must be one — per species.
+
+    Per species, not "for at least one of them", which is what an earlier
+    version of this test asked. That version passed while a dog reported as
+    straining to urinate and producing nothing reached no rule at all, because
+    the cat did. Anything narrower than dog-and-cat now has to say so in
+    `claim_species`, and say whether the narrowing is the claim's or our
+    library's.
+    """
+    levels = _levels_reported_alone(trigger.flag)
+    for species in _covered_species(trigger):
+        assert levels[species] is TriageLevel.RED, (
+            f"{trigger.flag.value} is declared an emergency for {species}, but reporting it alone "
+            f"reaches {levels[species].value}."
+        )
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    [t for t in UNCONDITIONAL if t.claim_species is not None],
+    ids=lambda t: t.flag.value,
+)
+def test_a_narrowed_emergency_claim_is_honest_about_the_animals_it_drops(trigger):
+    """The other animal gets our abstention — never the reassuring end of the scale.
+
+    A narrowed claim means some owner reports a real emergency sign and we have
+    nothing to say about it. That has to stay visible: never green, and where
+    the narrowing is our citations' rather than the disease's, it must be
+    parked as an open question that names itself.
+    """
+    levels = _levels_reported_alone(trigger.flag)
+    for species in {"dog", "cat"} - _covered_species(trigger):
+        assert levels[species] is not TriageLevel.GREEN, (
+            f"{trigger.flag.value} is not claimed for {species}, and a {species} reported this way "
+            "is being told it can be watched at home."
+        )
+
+    if trigger.citation_bound_to is not None:
+        assert trigger.citation_bound_to in {c["id"] for c in CANDIDATE_RULES}, (
+            f"{trigger.flag.value} is narrowed by our citations rather than by the claim, and "
+            f"names candidate {trigger.citation_bound_to!r}, which does not exist. The gap has to "
+            "be somewhere a reviewer will read it."
+        )
+
+
+@pytest.mark.parametrize("trigger", CONDITIONAL, ids=lambda t: t.flag.value)
+def test_a_conditional_emergency_question_escalates_only_with_its_predicate(trigger):
+    """Both halves of the predicate, asserted from the model that declares it.
+
+    This was a test-level exception list — "these flags are allowed not to be
+    red" — which said nothing about what they ARE red under, and lived where a
+    maintainer reading the rule table would never see it.
+    """
+    assert trigger.escalates_with, (
+        f"{trigger.flag.value} is declared conditional but names no escalation signs, so nothing "
+        "says what it is conditional on."
+    )
+
+    alone = _levels_reported_alone(trigger.flag)
+    assert TriageLevel.RED not in alone.values(), (
+        f"{trigger.flag.value} alone now reaches red. If a source says it is an emergency on its "
+        "own, declare it EMERGENCY and cite the source; do not leave the model saying otherwise."
+    )
+
+    for escalation in trigger.escalates_with:
+        level = engine.assess(
+            SymptomIntake(
+                concern=Concern.OTHER,
+                red_flags=[trigger.flag, escalation],
+                species="dog",
+            )
+        ).level
+        assert level is TriageLevel.RED, (
+            f"{trigger.flag.value} with {escalation.value} is declared an emergency and reaches "
+            f"{level.value}."
+        )
+
+
+@pytest.mark.parametrize("trigger", CONDITIONAL, ids=lambda t: t.flag.value)
+def test_a_conditional_trigger_tells_the_owner_what_the_escalation_looks_like(trigger):
+    """The disclosure has to encode the predicate, not just the flag.
+
+    An owner told "come back if the reaction starts" needs the reaction spelled
+    out somewhere they are actually shown, so every escalation sign must itself
+    be a line in the safety-net list.
+    """
+    covered = {flag for sign in GENERAL_EMERGENCY_SIGNS for flag in sign.covers}
+    missing = sorted(flag.value for flag in set(trigger.escalates_with) - covered)
+    assert not missing, (
+        f"{trigger.flag.value} escalates with {missing}, and the safety-net list never tells the "
+        "owner to come back for them."
+    )
+
+
+def test_a_species_specific_safety_net_line_is_not_shown_to_the_other_animal():
+    """Cornell's cat page does not speak for dogs, and this list is shown to all."""
+
+    def lines(species: str | None) -> str:
+        result = engine.assess(
+            SymptomIntake(
+                concern=Concern.SKIN_OR_COAT,
+                red_flags=[RedFlag.SKIN_ITCHING],
+                species=species,
+            )
+        )
+        return " ".join(sign.text for sign in result.urgent_care_signs)
+
+    assert "urethral obstruction" not in lines("dog")
+    assert "gastric dilatation" not in lines("cat")
+    assert "urethral obstruction" in lines("cat")
+    assert "gastric dilatation" in lines("dog")
+    # Told nothing about the animal, an owner is shown both — each line says
+    # whose emergency it is, and guessing is the wrong way to be wrong here.
+    both = lines(None)
+    assert "urethral obstruction" in both and "gastric dilatation" in both
+
+
+QUALIFIED = [t for t in EMERGENCY_SCREENING if t.owner_facing_qualifier]
+
+
+@pytest.mark.parametrize("trigger", QUALIFIED, ids=lambda t: t.flag.value)
+def test_a_qualified_trigger_keeps_its_qualifier_everywhere_the_owner_reads_it(trigger):
+    """Matching identifiers are not matching meanings.
+
+    `rapid_breathing_at_rest` appears in the form, in the rule table and in the
+    safety-net list, and the identifier check passes whether the disclosure says
+    "unusually fast while resting" or just "rapid breathing". It said the
+    second: the over-broad predicate the split removed from the question came
+    back one section below it, on the line that tells an owner when to act.
+
+    So where a trigger is deliberately narrower than the bare sign, the words
+    that make it narrower are declared, and every place the owner reads about
+    it has to carry them.
+    """
+    qualifier = trigger.owner_facing_qualifier.lower()
+
+    lines = [sign for sign in GENERAL_EMERGENCY_SIGNS if trigger.flag in sign.covers]
+    assert lines, f"{trigger.flag.value} has no safety-net line to check."
+    for sign in lines:
+        assert qualifier in sign.text.lower(), (
+            f"The safety-net line for {trigger.flag.value} drops {qualifier!r}, so it tells the "
+            f"owner to act on a broader sign than the one we ask about: {sign.text!r}"
+        )
+
+    reasons = [
+        rule.message
+        for rule in ALL_RULES
+        if rule.id == trigger.flag.value or trigger.flag.value in rule.id
+    ]
+    assert reasons, f"No rule is named for {trigger.flag.value}; the reason check is blind."
+    for message in reasons:
+        assert qualifier in message.lower(), (
+            f"The reason shown for {trigger.flag.value} drops {qualifier!r}: {message!r}"
+        )
+
+    labels = _labels_source()
+    if labels is None:
+        return
+    label = re.search(rf"{trigger.flag.value}: \"([^\"]+)\"", labels)
+    assert label, f"No label for {trigger.flag.value} in SIGN_LABELS; the owner sees no question."
+    assert qualifier in label.group(1).lower(), (
+        f"The form asks {label.group(1)!r}, which drops {qualifier!r} — the question and the "
+        "rule behind it no longer mean the same thing."
+    )
+
+
+def _form_source() -> str | None:
+    """Where the emergency screening lists live."""
+    form = Path(__file__).resolve().parents[3] / "frontend/src/components/SymptomIntakeForm.tsx"
+    return form.read_text(encoding="utf-8") if form.exists() else None
+
+
+def _labels_source() -> str | None:
+    """Where the owner-facing wording for each sign lives.
+
+    Split out from the form when the result card started playing the owner's
+    answers back to them under "Your answers" and needed the same strings. This
+    check followed the labels rather than staying pointed at the form, where it
+    would have passed by finding nothing — which is the failure mode the
+    docstring above is about.
+    """
+    labels = Path(__file__).resolve().parents[3] / "frontend/src/lib/symptomLabels.ts"
+    return labels.read_text(encoding="utf-8") if labels.exists() else None
+
+
+def test_the_form_and_the_engine_screen_for_the_same_emergencies():
+    """The last hand-maintained copy of the list: the form's own two questions.
+
+    Their labels and ordering are a UI decision and stay in the component. WHICH
+    triggers exist is not, and this is what stops a fourteenth button appearing
+    on the form that no rule reads and no safety-net line mentions.
+    """
+    source = _form_source()
+    if source is None:  # backend-only checkouts
+        pytest.skip("frontend/ is not present in this checkout")
+
+    asked: set[str] = set()
+    for name in ("URGENT_SIGNS", "ACCIDENTS"):
+        match = re.search(rf"const {name}: RedFlag\[\] = \[(.*?)\];", source, re.DOTALL)
+        assert match, f"Could not find {name} in SymptomIntakeForm.tsx; the check is now blind."
+        asked |= set(re.findall(r'"([a-z_]+)"', match.group(1)))
+
+    declared = {flag.value for flag in EMERGENCY_SCREENING_FLAGS}
+    assert asked == declared, (
+        "The form's emergency questions and EMERGENCY_SCREENING_FLAGS disagree. "
+        f"Asked on the form but not declared: {sorted(asked - declared)}. "
+        f"Declared but not asked on the form: {sorted(declared - asked)}."
+    )
+
 
 
 # =========================================================================
@@ -251,8 +534,14 @@ def test_an_unassessed_result_never_reads_as_reassurance():
         assert "can't assess" in result.headline.lower(), (
             f"{case.id}: an unassessed result must say plainly that we cannot assess it."
         )
-        assert "contact your veterinary practice" in result.advice.lower(), (
+        # The instruction, not one particular phrasing of it. The copy moved
+        # from "contact your veterinary practice" to "contact a veterinarian";
+        # what this guards is that an abstention still sends the owner to one.
+        assert "contact a veterinarian" in result.advice.lower(), (
             f"{case.id}: an unassessed result must point the owner at a veterinarian."
+        )
+        assert "safe to ignore" in result.advice.lower(), (
+            f"{case.id}: an unassessed result must say the problem may still matter."
         )
         assert not result.fired_rules, (
             f"{case.id}: abstained while claiming {len(result.fired_rules)} reasons."
@@ -404,6 +693,36 @@ def test_placeholder_species_values_do_not_silently_disable_the_rule_table(raw):
 # =========================================================================
 # No false reassurance
 # =========================================================================
+
+
+def test_a_recommendation_resting_on_our_own_bar_says_whose_bar_it_is():
+    """Where the action is our judgement, the action itself must admit it.
+
+    The engine can be scrupulous in its confidence panel and still overstate the
+    thing an owner actually reads. "Veterinary examination recommended" sat
+    above a panel saying, correctly, that no source establishes that a
+    presentation this mild needs an appointment rather than watching — and the
+    headline is what people act on. Any result whose rules take a THRESHOLD step
+    has to own that where the recommendation is made.
+    """
+    from app.schemas.triage import ExtrapolationKind
+    from app.services.triage.rules import ALL_RULES
+
+    silent = []
+    for case in CASES:
+        result = engine.assess(case.intake)
+        if result.level is not TriageLevel.AMBER:
+            continue
+        matched = [rule for rule in ALL_RULES if rule.matches(case.intake)]
+        if not any(ExtrapolationKind.THRESHOLD in rule.extrapolations for rule in matched):
+            continue
+        advice = result.advice.lower()
+        if "our own judgement" not in advice and "our cautious default" not in advice:
+            silent.append(f"{case.id}: {result.advice[:80]!r}")
+    assert not silent, (
+        f"{len(silent)} results recommend an appointment on a bar we set ourselves without "
+        "saying so:" + "".join("\n  " + line for line in silent[:10])
+    )
 
 
 def test_a_reported_sign_is_never_answered_with_monitor_at_home():
@@ -590,7 +909,7 @@ def _all_text(result) -> str:
             result.advice,
             result.disclaimer,
             *(fired.message for fired in result.fired_rules),
-            *result.urgent_care_signs,
+            *(sign.text for sign in result.urgent_care_signs),
             *result.care_instructions,
         ]
     ).lower()

@@ -106,6 +106,20 @@ def test_rules_built_on_a_negative_finding_declare_the_extrapolation():
     for rule in ALL_RULES:
         if not rule.is_emergency or rule.is_extrapolation:
             continue
+        # The check is whether the negative finding is load-bearing. A rule that
+        # also cites a page calling the thing an emergency outright is not
+        # reasoning past anything: the sting rule cites the ASPCA for "these
+        # signs mean emergency care" and Merck for what a sting reaction looks
+        # like, and Merck's silence on timing is not a gap the rule stands on.
+        # Without this, every supporting citation would have to be dropped to
+        # keep the rule honest, which makes the table less auditable, not more.
+        supported_elsewhere = any(
+            finding.urgency == Urgency.EMERGENCY
+            for citation in rule.citations
+            for finding in FINDINGS_BY_URL.get(citation.url, [])
+        )
+        if supported_elsewhere:
+            continue
         for citation in rule.citations:
             for finding in FINDINGS_BY_URL.get(citation.url, []):
                 if finding.negative_finding and finding.urgency != Urgency.EMERGENCY:
@@ -170,6 +184,115 @@ def test_recorded_access_dates_are_not_in_the_future_and_are_not_stale():
         assert ev.AUDIT_DATE - source.accessed < timedelta(days=365), (
             f"{source.name} was last read on {source.accessed}; re-read it."
         )
+
+
+def test_a_rule_that_names_a_timeframe_says_where_the_timeframe_came_from():
+    """Every timing claim is either sourced or declared as ours.
+
+    The failure this catches is subtle and was live in the table: a rule whose
+    sources establish that something needs looking at, quietly acquiring a
+    deadline ("within 24 hours", "same-day") that no cited page states. A rule
+    may name a timeframe only if a cited page states one — `urgency_evidence`
+    — or if it declares the figure as an extrapolation for the reviewer.
+    """
+    timeframes = (
+        "24 hour", "24-48", "48 hour", "same-day", "same day", "within a day",
+        "next few days", "immediately", "right now", "today",
+    )
+    undeclared = []
+    for rule in ALL_RULES:
+        text = " ".join(
+            [rule.message, rule.headline or "", rule.advice or "", *rule.care_instructions]
+        ).lower()
+        named = [phrase for phrase in timeframes if phrase in text]
+        if named and not rule.states_urgency and not rule.is_extrapolation:
+            undeclared.append(
+                f"{rule.id}: says {named}, but no cited page states a timeframe and the rule "
+                "does not declare the figure as an extrapolation."
+            )
+    assert not undeclared, (
+        "Timing claims with nothing behind them:\n  " + "\n  ".join(undeclared)
+    )
+
+
+def test_a_rule_claiming_sourced_urgency_cites_a_page_that_gives_one():
+    """`urgency_evidence=STATED` is a claim about the source, so check it."""
+    from tests.eval.evidence import Urgency as _U
+
+    wrong = []
+    for rule in ALL_RULES:
+        if rule.is_emergency or not rule.states_urgency:
+            continue
+        supported = any(
+            finding.urgency in (_U.EMERGENCY, _U.PROMPT_EXAM)
+            for citation in rule.citations
+            for finding in FINDINGS_BY_URL.get(citation.url, [])
+        )
+        if not supported:
+            wrong.append(f"{rule.id}: declares sourced urgency, but no cited page establishes any.")
+    assert not wrong, "Overstated urgency evidence:\n  " + "\n  ".join(wrong)
+
+
+def test_every_general_emergency_sign_names_a_page_this_audit_read():
+    """The safety net is nine-plus separate claims, not one list.
+
+    Each line is shown to owners on results whose own sources say nothing about
+    emergencies, so each has to name the page that states it — and that page has
+    to be one this audit actually opened.
+    """
+    from app.services.triage.rules import GENERAL_EMERGENCY_SIGNS
+
+    problems = []
+    for sign in GENERAL_EMERGENCY_SIGNS:
+        if not sign.sources:
+            problems.append(f"{sign.text!r}: no source at all.")
+            continue
+        for source in sign.sources:
+            if not FINDINGS_BY_URL.get(source.url, []):
+                problems.append(f"{sign.text!r}: cites {source.name!r}, which this audit never read.")
+        # The emergency framing itself must be sourced. Supporting detail may
+        # come from a page that gives no urgency — Merck's trauma page says an
+        # animal can look stable and not be, which is why the trauma line says
+        # so, while the ASPCA is what makes trauma an emergency at all.
+        establishes_emergency = any(
+            finding.urgency == Urgency.EMERGENCY
+            for source in sign.sources
+            for finding in FINDINGS_BY_URL.get(source.url, [])
+        )
+        if not establishes_emergency:
+            problems.append(f"{sign.text!r}: no cited page calls this an emergency.")
+    assert not problems, "Emergency signs with weak provenance:\n  " + "\n  ".join(problems)
+
+
+def test_a_rule_claiming_diagnostic_evidence_cites_a_page_that_describes_it():
+    """`diagnostic_evidence=DESCRIBED` is a claim about the source, so check it.
+
+    The confidence report tells owners "the pages cited above state how the
+    cause is identified". It used to say that under every result, including ones
+    whose only source is about how fast to act.
+    """
+    from app.schemas.triage import DiagnosticEvidence
+
+    words = (
+        "examination", "examin", "diagnos", "history", "cytolog", "culture",
+        "stain", "otoscop", "scraping", "trichogram", "testing", "tests",
+        "pressure measurement", "measuring intraocular pressure", "work-up", "workup",
+    )
+    unsupported = []
+    for rule in ALL_RULES:
+        if rule.diagnostic_evidence is not DiagnosticEvidence.DESCRIBED:
+            continue
+        supports = " ".join(citation.supports for citation in rule.citations).lower()
+        if not any(word in supports for word in words):
+            unsupported.append(
+                f"{rule.id}: claims its sources describe how the cause is identified, but no "
+                "citation paraphrase mentions an examination, a history or a test."
+            )
+    assert not unsupported, (
+        "Diagnostic-process claims with nothing behind them:" + "".join(
+            "\n  " + line for line in unsupported
+        )
+    )
 
 
 def test_nothing_in_the_rule_table_claims_clinical_validation():

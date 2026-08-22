@@ -20,7 +20,9 @@ from app.schemas.triage import (
     BodyArea,
     Concern,
     Duration,
+    ItchLevel,
     RedFlag,
+    SkinSpread,
     SymptomIntake,
     TimeSinceEating,
     Trend,
@@ -512,6 +514,69 @@ VIGNETTES: tuple[Case, ...] = (
         species="guinea pig", age_category=AgeCategory.ADULT,
     ),
 
+    # --- skin and coat, the pathway that used to abstain ---------------------
+    _v(
+        "vig_dog_itchy_red_paws_week",
+        "The reported case: dog, skin or coat, legs or paws, 2-7 days, about the same — but "
+        "now describing the skin as itchy and red, which is what the rules read.",
+        concern=Concern.SKIN_OR_COAT, body_area=BodyArea.LEGS_OR_PAWS,
+        duration=Duration.DAYS_2_7, trend=Trend.UNCHANGED,
+        red_flags=[RedFlag.SKIN_ITCHING, RedFlag.SKIN_REDNESS],
+        itch_level=ItchLevel.FREQUENT, skin_spread=SkinSpread.SEVERAL_AREAS,
+        species="dog", age_category=AgeCategory.ADULT,
+    ),
+    _v(
+        "vig_dog_paw_problem_undescribed",
+        "The same case with the skin never described: no lesion, no itch level. Nothing in the "
+        "evidence base can be matched, and the engine must still abstain rather than guess.",
+        concern=Concern.SKIN_OR_COAT, body_area=BodyArea.LEGS_OR_PAWS,
+        duration=Duration.DAYS_2_7, trend=Trend.UNCHANGED,
+        species="dog", age_category=AgeCategory.ADULT,
+    ),
+    _v(
+        "vig_dog_oozing_smelly_skin_fold",
+        "Dog with a raw, oozing, foul-smelling skin fold for a fortnight.",
+        concern=Concern.SKIN_OR_COAT, body_area=BodyArea.BELLY, duration=Duration.WEEKS_1_4,
+        trend=Trend.WORSENING,
+        red_flags=[
+            RedFlag.SKIN_OPEN_WOUND, RedFlag.SKIN_DISCHARGE_OR_PUS, RedFlag.SKIN_ODOR,
+        ],
+        itch_level=ItchLevel.OCCASIONAL, skin_spread=SkinSpread.ONE_AREA,
+        species="dog", age_category=AgeCategory.ADULT,
+    ),
+    _v(
+        "vig_cat_scaly_patches_owner_itchy_too",
+        "Cat with crusty bald patches; the owner has developed an itchy patch on their arm.",
+        concern=Concern.SKIN_OR_COAT, duration=Duration.WEEKS_1_4, trend=Trend.WORSENING,
+        red_flags=[
+            RedFlag.SKIN_HAIR_LOSS, RedFlag.SKIN_SCABS_OR_FLAKING, RedFlag.SKIN_CONTAGION,
+        ],
+        itch_level=ItchLevel.OCCASIONAL, skin_spread=SkinSpread.SEVERAL_AREAS,
+        species="cat", age_category=AgeCategory.YOUNG,
+    ),
+    _v(
+        "vig_dog_cannot_stop_scratching",
+        "Dog scratching so constantly it cannot settle, with nothing yet visible on the skin.",
+        concern=Concern.SKIN_OR_COAT, body_area=BodyArea.ALL_OVER, duration=Duration.DAYS_2_7,
+        trend=Trend.WORSENING, itch_level=ItchLevel.CANNOT_SETTLE,
+        skin_spread=SkinSpread.WIDESPREAD, species="dog", age_category=AgeCategory.ADULT,
+    ),
+    _v(
+        "vig_dog_paw_lick_routed_to_lameness",
+        "Paw problem the owner routed to limping rather than skin: the leg is the issue, not "
+        "the skin on it.",
+        concern=Concern.MOBILITY, body_area=BodyArea.LEGS_OR_PAWS, duration=Duration.DAYS_2_7,
+        trend=Trend.UNCHANGED, weight_bearing=True, species="dog",
+        age_category=AgeCategory.ADULT,
+    ),
+    _v(
+        "vig_cat_new_lump_not_bothering",
+        "Cat with a new lump on the flank that does not seem to bother them.",
+        concern=Concern.SKIN_OR_COAT, body_area=BodyArea.BACK, duration=Duration.WEEKS_1_4,
+        trend=Trend.UNCHANGED, red_flags=[RedFlag.SKIN_LUMP], itch_level=ItchLevel.NONE,
+        skin_spread=SkinSpread.ONE_AREA, species="cat", age_category=AgeCategory.SENIOR,
+    ),
+
     # --- messy input --------------------------------------------------------
     _v(
         "vig_species_with_whitespace",
@@ -748,6 +813,11 @@ def _generated_cases(count: int = 400) -> tuple[Case, ...]:
             weight_bearing=rng.choice((True, False, None)),
             species=rng.choice(_SPECIES_POOL),
             age_category=rng.choice(_AGE_POOL),
+            # Drawn last on purpose: the skin answers were added after the first
+            # audit ran, and appending them here leaves every earlier draw — and
+            # so every case the audit had already scored — byte for byte the same.
+            itch_level=rng.choice((*ItchLevel, None)),
+            skin_spread=rng.choice((*SkinSpread, None)),
         )
         cases.append(
             Case(

@@ -71,6 +71,7 @@ _MULTI_DAY = (Duration.DAYS_2_7, Duration.WEEKS_1_4, Duration.OVER_MONTH)
 GENERAL_EMERGENCY_FLAGS = frozenset(
     {
         RedFlag.TROUBLE_BREATHING,
+        RedFlag.RAPID_BREATHING_AT_REST,
         RedFlag.SEVERE_PAIN,
         RedFlag.UNCONTROLLED_BLEEDING,
         RedFlag.SUSPECTED_POISONING,
@@ -81,11 +82,20 @@ GENERAL_EMERGENCY_FLAGS = frozenset(
         RedFlag.PALE_GUMS,
         RedFlag.MAJOR_TRAUMA,
         RedFlag.CHOKING,
-        RedFlag.INSECT_STING_REACTION,
+        # INSECT_STING_REACTION is deliberately absent. The ASPCA names a sting
+        # among the causes a pet MAY need emergency care because of, and never
+        # says a sting alone is life-threatening — so it is not a sign whose own
+        # source calls it an emergency, which is what this set means.
         RedFlag.OVERHEATING,
         RedFlag.BLOOD_IN_VOMIT_OR_STOOL,
         RedFlag.BLACK_TARRY_STOOL,
         RedFlag.EYE_CHEMICAL_EXPOSURE,
+        # Added 2026-08-22. Merck's urethral obstruction page calls it an
+        # emergency for small animals, dogs and cats alike, so the sign now
+        # meets this set's own definition. While the only pages we held were
+        # feline, it did not, and an unidentified animal reported this way was
+        # given no urgency at all.
+        RedFlag.UNABLE_TO_URINATE,
     }
 )
 
@@ -121,6 +131,27 @@ _OTITIS_INTERNA_FLAGS = {
 }
 
 _PINNA_FLAGS = {RedFlag.EAR_FLAP_SWELLING, RedFlag.EAR_SELF_INJURY}
+
+#: Presentations Merck's dermatology pages organise skin disease by. The itch
+#: LEVEL is deliberately absent: Merck grades no severity, so the ledger records
+#: that the product's severity bands rest on no source, and this oracle labels
+#: from the lesion alone.
+_SKIN_LESION_FLAGS = {
+    RedFlag.SKIN_ITCHING,
+    RedFlag.SKIN_REDNESS,
+    RedFlag.SKIN_HAIR_LOSS,
+    RedFlag.SKIN_RASH_OR_BUMPS,
+    RedFlag.SKIN_SCABS_OR_FLAKING,
+    RedFlag.SKIN_SWELLING,
+    RedFlag.SKIN_LUMP,
+    RedFlag.SKIN_NAIL_OR_PAD_CHANGE,
+}
+
+_SKIN_INFECTION_FLAGS = {
+    RedFlag.SKIN_DISCHARGE_OR_PUS,
+    RedFlag.SKIN_ODOR,
+    RedFlag.SKIN_OPEN_WOUND,
+}
 
 _FRAGILE_AGES = (AgeCategory.BABY, AgeCategory.SENIOR)
 
@@ -230,12 +261,12 @@ def expected_label(intake: SymptomIntake) -> Label:  # noqa: C901 - a decision t
             add(TriageLevel.RED, finding, f"Merck lists {flag.value.replace('_', ' ')} as an emergency.")
 
     for flag, finding in (
+        (RedFlag.RAPID_BREATHING_AT_REST, ev.ASPCA_LIST[9]),
         (RedFlag.SEIZURE, ev.ASPCA_LIST[2]),
         (RedFlag.COLLAPSE_OR_UNRESPONSIVE, ev.ASPCA_LIST[1]),
         (RedFlag.PALE_GUMS, ev.ASPCA_LIST[0]),
         (RedFlag.MAJOR_TRAUMA, ev.ASPCA_LIST[4]),
         (RedFlag.CHOKING, ev.ASPCA_LIST[5]),
-        (RedFlag.INSECT_STING_REACTION, ev.ASPCA_LIST[6]),
     ):
         if flag in flags:
             add(TriageLevel.RED, finding, f"ASPCA lists {flag.value.replace('_', ' ')} as an emergency sign.")
@@ -243,6 +274,22 @@ def expected_label(intake: SymptomIntake) -> Label:  # noqa: C901 - a decision t
     if RedFlag.SUSPECTED_POISONING in flags:
         add(TriageLevel.RED, ev.PET_POISON_HELPLINE, "Pet Poison Helpline says to call immediately.")
         add(TriageLevel.RED, ev.ASPCA_POISON_CONTROL, "ASPCA runs a 24-hour animal poison line.")
+
+    # A sting escalates on the reaction, not on the exposure.
+    if RedFlag.INSECT_STING_REACTION in flags and flags & {
+        RedFlag.TROUBLE_BREATHING,
+        RedFlag.RAPID_BREATHING_AT_REST,
+        RedFlag.COLLAPSE_OR_UNRESPONSIVE,
+        RedFlag.PALE_GUMS,
+        RedFlag.SEIZURE,
+        RedFlag.BLOOD_IN_VOMIT_OR_STOOL,
+    }:
+        add(
+            TriageLevel.RED,
+            ev.ASPCA_LIST[6],
+            "ASPCA names a sting among the causes a pet may need emergency care because of, and "
+            "the reported reaction is on its list of emergency signs.",
+        )
 
     if RedFlag.OVERHEATING in flags:
         add(TriageLevel.RED, ev.ASPCA_LIST[8], "ASPCA names heatstroke a life-threatening situation.")
@@ -270,12 +317,17 @@ def expected_label(intake: SymptomIntake) -> Label:  # noqa: C901 - a decision t
     gi_signs = flags & {RedFlag.VOMITING, RedFlag.DIARRHOEA}
     fragile = intake.has_chronic_illness is True or intake.age_category in _FRAGILE_AGES
 
-    if RedFlag.VOMITING in flags and intake.duration in _MULTI_DAY:
+    if RedFlag.VOMITING_MANY_TIMES in flags:
         add(
             TriageLevel.RED,
             ev.MISSOURI_VOMITING_OVER_24H,
-            "Vomiting reported beyond the 'today' band exceeds Missouri's 24-hour trigger.",
+            "Missouri lists profuse vomiting many times in a day among the situations warranting "
+            "more immediate attention.",
         )
+    # Duration alone is deliberately absent. "Vomiting for 2-7 days" was read
+    # here as Missouri's "attempts to vomit continue for more than 24 hours"
+    # until a reviewer separated the two: once a day for three days is not that
+    # clause. The frequency answer above is what carries it now.
     if gi_signs and fragile:
         add(
             TriageLevel.RED,
@@ -302,6 +354,12 @@ def expected_label(intake: SymptomIntake) -> Label:  # noqa: C901 - a decision t
         add(TriageLevel.RED, ev.CORNELL_GDV, "Cornell: GDV needs immediate intervention and is fatal without it.")
 
     if RedFlag.UNABLE_TO_URINATE in flags:
+        add(
+            TriageLevel.RED,
+            ev.CORNELL_LUTD,
+            "Cornell: urethral obstruction is a true medical emergency and any cat suspected of "
+            "it must receive immediate veterinary attention.",
+        )
         add(TriageLevel.RED, ev.ACVS_OBSTRUCTION, "ACVS: urinary obstruction requires emergency treatment.")
 
     if RedFlag.NOT_EATING in flags:
@@ -343,6 +401,35 @@ def expected_label(intake: SymptomIntake) -> Label:  # noqa: C901 - a decision t
             "A persistent ear problem needs the otoscopic and cytological work-up Merck describes.",
         )
 
+    if flags & _SKIN_LESION_FLAGS:
+        add(
+            TriageLevel.AMBER,
+            ev.MERCK_DERM_PROBLEMS,
+            "Merck organises skin disease by presentation and states that accurate diagnosis "
+            "requires a careful history and physical examination.",
+        )
+    if RedFlag.SKIN_ITCHING in flags:
+        add(
+            TriageLevel.AMBER,
+            ev.MERCK_PRURITUS,
+            "Merck: pruritus is a clinical sign rather than a diagnosis, and identifying its "
+            "cause requires a methodical workup.",
+        )
+    if flags & _SKIN_INFECTION_FLAGS:
+        add(
+            TriageLevel.AMBER,
+            ev.MERCK_PYODERMA,
+            "Merck gives odor, exudation of pus and ulceration as pyoderma signs, diagnosed by "
+            "cytology and culture rather than by appearance.",
+        )
+    if RedFlag.SKIN_CONTAGION in flags:
+        add(
+            TriageLevel.AMBER,
+            ev.MERCK_DERMATOPHYTOSIS,
+            "Merck: dermatophytosis is zoonotic and spread by direct contact, and confirming it "
+            "takes several tests.",
+        )
+
     if RedFlag.DRINKING_MUCH_MORE in flags:
         add(TriageLevel.AMBER, ev.VCA_THIRST, "VCA associates polydipsia with disease needing work-up.")
 
@@ -362,7 +449,16 @@ def expected_label(intake: SymptomIntake) -> Label:  # noqa: C901 - a decision t
     if RedFlag.DIARRHOEA in flags and intake.duration in _MULTI_DAY:
         add(TriageLevel.AMBER, ev.CORNELL_DIARRHOEA_TWO_DAYS, "Cornell: loose stool beyond two days, call the vet.")
 
-    mobility_context = intake.concern is Concern.MOBILITY or intake.body_area is BodyArea.LEGS_OR_PAWS
+    # VCA's page is about LIMPING, so this proxy asks whether the owner has
+    # described a leg problem. "Legs or paws" alone used to be read as one,
+    # which meant an itchy paw was labelled from a lameness page. The form now
+    # separates the two — a paw problem is routed to skin or to limping before
+    # these questions are asked — so a skin case on a paw is not a lameness
+    # case, and nothing in this ledger speaks to it.
+    mobility_context = intake.concern is Concern.MOBILITY or (
+        intake.body_area is BodyArea.LEGS_OR_PAWS
+        and intake.concern is not Concern.SKIN_OR_COAT
+    )
     if mobility_context and intake.duration in _MULTI_DAY:
         add(TriageLevel.AMBER, ev.VCA_LIMPING_OVER_24H, "VCA: lameness beyond 24 hours needs veterinary care.")
     if intake.weight_bearing is False and intake.duration in _MULTI_DAY:

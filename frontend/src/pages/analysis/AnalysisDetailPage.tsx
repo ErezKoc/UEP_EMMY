@@ -40,6 +40,8 @@ function IntakeDetails({ intake }: { intake: SymptomIntake }) {
     ["Duration", intake.duration ? humanize(intake.duration) : null],
     ["Trend", intake.trend ? humanize(intake.trend) : null],
     ["Time since eating", intake.time_since_eating ? humanize(intake.time_since_eating) : null],
+    ["How much it bothers them", intake.itch_level ? humanize(intake.itch_level) : null],
+    ["How widespread", intake.skin_spread ? humanize(intake.skin_spread) : null],
     [
       "Chronic illness",
       intake.has_chronic_illness == null ? null : intake.has_chronic_illness ? "Yes" : "No",

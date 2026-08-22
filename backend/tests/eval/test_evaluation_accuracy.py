@@ -65,22 +65,19 @@ def test_no_confirmed_under_triage():
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Feline anorexia below Cornell's 24-hour threshold. The label rests on reading that "
-        "threshold as implying something about a shorter fast, which the page does not say. "
-        "Building a rule on it would be inventing clinical logic, so the engine abstains and "
-        "the question is on the veterinary-adjudication list. Expected to XPASS once a "
-        "veterinarian rules on it — at which point delete this marker."
-    ),
-)
 def test_no_inference_dependent_under_triage():
     """Separate, softer gate: labels that needed a step past the source.
 
-    Marked xfail rather than deleted. The disagreement is real and is meant to
-    stay on the record; what it is not is a software defect this team may fix by
-    guessing. See the audit report's veterinary-adjudication list.
+    This carried an xfail for feline anorexia below Cornell's 24-hour mark. The
+    marker said the label rested on reading that threshold as implying something
+    about a shorter fast, and that only a veterinarian could settle it. Re-reading
+    the page on 2026-08-22 settled it a different way: it also says a cat that is
+    not eating deserves a full veterinary workup, and to consult a veterinarian
+    immediately on noticing any sign of anorexia, neither of them conditioned on
+    a duration. So there was no inference to adjudicate — the ledger had recorded
+    one sentence off the page and missed two others, and `cat_not_eating` now
+    reads them. What IS still open is the grade: the rule answers amber where
+    Cornell says "immediately", and its reviewer note asks about that.
     """
     failures = [o for o in SCORED if o.under_triaged and not o.confirmed_under_triage]
     assert not failures, (
