@@ -1,5 +1,7 @@
 import logging
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,6 +13,7 @@ from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.seed import ensure_admin_account, ensure_demo_clinic_details, seed_demo_data
+from app.services.notifications import due_reminder_notifications
 from app.db.session import SessionLocal, engine
 from app.services.ai import get_analysis_service
 
@@ -90,6 +93,26 @@ def ensure_compatibility_columns() -> None:
         "accepts_appointments": (
             "ALTER TABLE users ADD COLUMN accepts_appointments BOOLEAN NOT NULL DEFAULT 0"
         ),
+        # Notification preferences. Both channels default ON for existing
+        # accounts: somebody who already set reminders asked to be reminded.
+        "notify_in_app": (
+            "ALTER TABLE users ADD COLUMN notify_in_app BOOLEAN NOT NULL DEFAULT 1"
+        ),
+        "notify_email": (
+            "ALTER TABLE users ADD COLUMN notify_email BOOLEAN NOT NULL DEFAULT 1"
+        ),
+        "notify_lead_days": (
+            "ALTER TABLE users ADD COLUMN notify_lead_days INTEGER NOT NULL DEFAULT 1"
+        ),
+    }
+    reminder_columns = {column["name"] for column in inspector.get_columns("reminders")}
+    reminder_additions = {
+        # Custom recurrence. An existing "monthly" row means every 1 month,
+        # which is exactly what a default of 1 gives it.
+        "recurrence_interval": (
+            "ALTER TABLE reminders ADD COLUMN recurrence_interval INTEGER NOT NULL DEFAULT 1"
+        ),
+        "repeat_until": "ALTER TABLE reminders ADD COLUMN repeat_until DATE",
     }
     missing = [
         statement
@@ -111,6 +134,11 @@ def ensure_compatibility_columns() -> None:
         for name, statement in user_additions.items()
         if name not in user_columns
     )
+    missing.extend(
+        statement
+        for name, statement in reminder_additions.items()
+        if name not in reminder_columns
+    )
     with engine.begin() as connection:
         for statement in missing:
             connection.execute(text(statement))
@@ -129,6 +157,36 @@ def ensure_compatibility_columns() -> None:
                 "ON ai_analysis_logs (triage_level)"
             )
         )
+
+
+async def _notification_sweep() -> None:
+    """Announce reminders coming due, for as long as the app is running.
+
+    An asyncio task rather than cron or a worker process, because this deploys
+    as a single container and adding a scheduler service to a project that has
+    none would be a lot of infrastructure for a job that takes milliseconds.
+
+    Two properties matter more than precision. It must never raise out of the
+    loop - one bad reminder row must not silently end notifications for
+    everybody until the next restart - and it must be safe to run as often as
+    it likes, which is what the dedupe key in `notifications.py` guarantees.
+
+    A second instance of this container would double up the work but not the
+    alerts, for the same reason.
+    """
+    settings = get_settings()
+    interval = max(60, settings.notification_sweep_minutes * 60)
+    while True:
+        try:
+            with SessionLocal() as db:
+                created = due_reminder_notifications(db)
+            if created:
+                logger.info("Notification sweep created %d reminder alert(s).", created)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Notification sweep failed; will try again next time.")
+        await asyncio.sleep(interval)
 
 
 @asynccontextmanager
@@ -151,6 +209,13 @@ async def lifespan(app: FastAPI):
     # paying that inside the first upload made the request outlive the client's
     # timeout — the user saw "the server did not respond" on an upload that was
     # in fact still running. Startup is the right place to absorb it.
+    # The sweep runs for the life of the process. Held on `app.state` so
+    # shutdown can cancel it rather than leaving a task writing to a database
+    # session that is being torn down.
+    sweep_task: asyncio.Task | None = None
+    if get_settings().notification_sweep_enabled:
+        sweep_task = asyncio.create_task(_notification_sweep())
+
     try:
         service = get_analysis_service()
         logger.info("Analysis service ready: %s", type(service).__name__)
@@ -160,6 +225,13 @@ async def lifespan(app: FastAPI):
         logger.exception("Could not warm up the analysis service.")
 
     yield
+
+    if sweep_task is not None:
+        sweep_task.cancel()
+        # Swallowed on purpose: cancelling is how this task is meant to end,
+        # and re-raising CancelledError here would make shutdown look failed.
+        with suppress(asyncio.CancelledError):
+            await sweep_task
 
 
 app = FastAPI(

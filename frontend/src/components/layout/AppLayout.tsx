@@ -6,6 +6,7 @@ import Button from "../ui/Button";
 import { MenuIcon, PawIcon } from "../ui/icons";
 import type { CurrentUser } from "../../types";
 import VoiceAssistantBubble from "../assistant/VoiceAssistantBubble";
+import NotificationBell from "../NotificationBell";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard" },
@@ -159,7 +160,10 @@ export default function AppLayout() {
 
           <div className="ml-auto hidden items-center gap-2 md:flex">
             {user ? (
-              <UserMenu />
+              <>
+                <NotificationBell />
+                <UserMenu />
+              </>
             ) : (
               <>
                 <Link to="/login">

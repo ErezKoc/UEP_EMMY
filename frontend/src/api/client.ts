@@ -237,6 +237,37 @@ export async function uploadAnimalPhoto(animalId: string, file: File): Promise<A
   return parseResponse<Animal>(response);
 }
 
+// --------------------------------------------------------- notifications
+
+export async function getNotifications(
+  unreadOnly = false,
+): Promise<import("../types").AppNotification[]> {
+  const suffix = unreadOnly ? "?unread_only=true" : "";
+  const response = await apiFetch(`${API_BASE}/notifications${suffix}`, {
+    headers: authHeaders(),
+  });
+  return parseResponse<import("../types").AppNotification[]>(response);
+}
+
+/** Just the digit for the badge — polled, so it must stay small. */
+export async function getUnreadCount(): Promise<number> {
+  const response = await apiFetch(`${API_BASE}/notifications/unread-count`, {
+    headers: authHeaders(),
+  });
+  const data = await parseResponse<{ unread: number }>(response);
+  return data.unread;
+}
+
+export function markNotificationRead(
+  id: string,
+): Promise<import("../types").AppNotification> {
+  return requestJson<import("../types").AppNotification>(`/notifications/${id}/read`, "POST");
+}
+
+export function markAllNotificationsRead(): Promise<{ unread: number }> {
+  return requestJson<{ unread: number }>("/notifications/read-all", "POST");
+}
+
 // ------------------------------------------------------------- analyses
 
 export function updateAnalysis(

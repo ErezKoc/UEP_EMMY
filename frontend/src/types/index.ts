@@ -47,6 +47,10 @@ export interface CurrentUser extends User {
   clinic_country: string | null;
   clinic_hours: string | null;
   accepts_appointments: boolean;
+  notify_in_app: boolean;
+  notify_email: boolean;
+  /** Days ahead a reminder is announced. 0 means on the day itself. */
+  notify_lead_days: number;
   suspended_until: string | null;
   moderation_note: string | null;
   /** False while suspended or banned: posting, commenting and reporting are off. */
@@ -98,6 +102,9 @@ export interface ProfileUpdatePayload {
   clinic_country?: string;
   clinic_hours?: string;
   accepts_appointments?: boolean;
+  notify_in_app?: boolean;
+  notify_email?: boolean;
+  notify_lead_days?: number;
 }
 
 export interface AuthResponse {
@@ -197,7 +204,7 @@ export interface AnimalPayload {
 }
 
 export type ReminderType = "vaccine" | "checkup" | "other";
-export type ReminderRecurrence = "none" | "monthly" | "yearly";
+export type ReminderRecurrence = "none" | "daily" | "weekly" | "monthly" | "yearly";
 
 export interface Reminder {
   id: string;
@@ -205,6 +212,17 @@ export interface Reminder {
   reminder_type: ReminderType;
   due_date: string;
   recurrence: ReminderRecurrence;
+  /** How many of `recurrence` between occurrences — 3 + monthly is quarterly. */
+  recurrence_interval: number;
+  repeat_until: string | null;
+  /**
+   * Computed by the server, not the browser. The calendar could work it out
+   * itself, but a notification email cannot, and the two must never disagree
+   * about when something is due — so the server is the single answer.
+   */
+  next_occurrence: string | null;
+  /** The rule in words: "every 3 months, until 01 Dec 2026". */
+  recurrence_description: string;
   notes: string | null;
   animal_id: string;
   owner_id: string;
@@ -217,8 +235,36 @@ export interface ReminderPayload {
   reminder_type: ReminderType;
   due_date: string;
   recurrence: ReminderRecurrence;
+  recurrence_interval?: number;
+  repeat_until?: string | null;
   notes?: string | null;
   animal_id: string;
+}
+
+export type NotificationKind =
+  | "reminder_due"
+  | "appointment_requested"
+  | "appointment_confirmed"
+  | "appointment_declined"
+  | "appointment_cancelled";
+
+/**
+ * One thing the platform wants to tell you.
+ *
+ * One row per thing-worth-saying, whatever channels carried it: an in-app
+ * alert and an email about the same appointment are the same notification, so
+ * "mark as read" means one thing rather than depending on where you read it.
+ */
+export interface AppNotification {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  link: string | null;
+  read_at: string | null;
+  /** Whether the email half went out — so "I never got the email" has an answer. */
+  emailed: boolean;
+  created_at: string;
 }
 
 export interface BreedCandidate {

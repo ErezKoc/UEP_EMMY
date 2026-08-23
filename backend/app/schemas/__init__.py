@@ -21,6 +21,7 @@ from app.schemas.assistant import (
 )
 from app.schemas.auth import AuthResponse, LoginRequest, SignupRequest
 from app.schemas.moderation import ReportCreate, ReportDecision, ReportRead
+from app.schemas.notification import NotificationRead, UnreadCount
 from app.schemas.post import CommentCreate, CommentRead, PostCreate, PostDetail, PostRead
 from app.schemas.reminder import ReminderCreate, ReminderRead, ReminderUpdate
 from app.schemas.symptom_check import SymptomCheckCreate, SymptomCheckRead
@@ -56,6 +57,7 @@ __all__ = [
     "CurrentUserRead",
     "LoginRequest",
     "PasswordChange",
+    "NotificationRead",
     "PostCreate",
     "PostDetail",
     "PostRead",
@@ -66,6 +68,7 @@ __all__ = [
     "ReportDecision",
     "ReportRead",
     "ReportedUserRead",
+    "UnreadCount",
     "SignupRequest",
     "SymptomCheckCreate",
     "SymptomCheckRead",

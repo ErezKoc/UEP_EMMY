@@ -4,6 +4,7 @@ from app.api.v1 import (
     analysis,
     animals,
     appointments,
+    notifications,
     assistant,
     auth,
     posts,
@@ -31,6 +32,9 @@ api_router.include_router(
     appointments.router, prefix="/appointments", tags=["appointments"]
 )
 api_router.include_router(reminders.router, prefix="/reminders", tags=["reminders"])
+api_router.include_router(
+    notifications.router, prefix="/notifications", tags=["notifications"]
+)
 api_router.include_router(verification.router, prefix="/verification", tags=["verification"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(assistant.router, prefix="/assistant", tags=["assistant"])

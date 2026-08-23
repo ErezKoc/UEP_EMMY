@@ -8,6 +8,7 @@ from app.models.moderation import (
     ReportTargetType,
     UserReport,
 )
+from app.models.notification import Notification, NotificationKind
 from app.models.post import Comment, Post
 from app.models.symptom_check import SymptomCheck
 from app.models.user import AccountStatus, User, UserRole, VerificationStatus
@@ -23,6 +24,8 @@ __all__ = [
     "AppointmentStatus",
     "Comment",
     "ModerationAction",
+    "Notification",
+    "NotificationKind",
     "Post",
     "ReportReason",
     "ReportStatus",

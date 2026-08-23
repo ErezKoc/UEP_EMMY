@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, String, Uuid
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -97,6 +97,14 @@ class User(Base):
     #: Opt-in: a request sent to a practice that is not watching for one is
     #: worse than no button, because the owner believes they have asked.
     accepts_appointments: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # How this person wants to hear from us. Both default ON: somebody who set
+    # a reminder asked to be reminded, and defaulting to silence would make the
+    # feature look broken to everyone who never found the settings page.
+    notify_in_app: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    notify_email: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    #: How many days ahead a reminder is announced. 0 means "on the day".
+    notify_lead_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     verification_status: Mapped[VerificationStatus] = mapped_column(
         Enum(
             VerificationStatus,

@@ -29,6 +29,24 @@ class Settings(BaseSettings):
     secret_key: str = "dev-only-change-me"
     token_ttl_hours: int = 24 * 7
 
+    # Email. Leave `smtp_host` empty and nothing is sent: the message is
+    # written to <storage_root>/outbox as a complete .eml and logged instead.
+    # That is the default deliberately - this runs in Docker with no mail
+    # credentials, and a sender that throws on every notification is worse than
+    # one that writes down what it would have sent.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_from: str = "UEP EMMY <no-reply@uepemmy.local>"
+
+    # How often the reminder scheduler wakes up. Minutes, because reminders are
+    # day-grained: checking more often cannot make an alert arrive sooner.
+    notification_sweep_minutes: int = 15
+    # Set false to keep the loop from starting at all (tests, one-off scripts).
+    notification_sweep_enabled: bool = True
+
     # AI Assistant (Ollama & Whisper)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"

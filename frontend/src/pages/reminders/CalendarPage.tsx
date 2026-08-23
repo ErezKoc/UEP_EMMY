@@ -14,6 +14,10 @@ const emptyForm = (): ReminderPayload => ({
   reminder_type: "vaccine",
   due_date: today.toISOString().slice(0, 10),
   recurrence: "none",
+  // Present from the start so the interval box is a controlled input the
+  // moment somebody switches away from "does not repeat".
+  recurrence_interval: 1,
+  repeat_until: null,
   notes: "",
   animal_id: "",
 });
@@ -31,30 +35,61 @@ function isOverdue(reminder: Reminder) {
   return reminder.recurrence === "none" && new Date(`${reminder.due_date}T00:00:00`) < startOfToday;
 }
 
+/*
+ * The server now computes the next occurrence and sends it on the reminder, so
+ * this reads it rather than recalculating. Two implementations of the same
+ * arithmetic is how a calendar and an email end up disagreeing about when a
+ * treatment is due, and the email is the one nobody can check.
+ */
 function nextOccurrence(reminder: Reminder): Date | null {
-  const due = new Date(`${reminder.due_date}T00:00:00`);
-  if (reminder.recurrence === "none") return due >= startOfToday ? due : null;
-  const next = new Date(due);
-  if (reminder.recurrence === "monthly") {
-    next.setFullYear(startOfToday.getFullYear(), startOfToday.getMonth(), due.getDate());
-    if (next < startOfToday) next.setMonth(next.getMonth() + 1);
-  } else {
-    next.setFullYear(startOfToday.getFullYear());
-    if (next < startOfToday) next.setFullYear(next.getFullYear() + 1);
-  }
-  return next;
+  if (!reminder.next_occurrence) return null;
+  return new Date(`${reminder.next_occurrence}T00:00:00`);
+}
+
+/** Shift by whole months, clamping to a shorter month. Mirrors the backend. */
+function addMonths(start: Date, months: number): Date {
+  const target = new Date(start.getFullYear(), start.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return new Date(target.getFullYear(), target.getMonth(), Math.min(start.getDate(), lastDay));
 }
 
 function isoDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+/*
+ * Does this reminder fall on this day? Mirrors backend/app/services/recurrence.py
+ * exactly — including the interval, the end date, and the month clamping.
+ * Walking occurrences rather than pattern-matching the date is what makes
+ * "every 3 months" and "every 8 days" work at all: there is no property of a
+ * date alone that says whether it is 8 days after another one.
+ */
 function occursOn(reminder: Reminder, date: Date) {
   const due = new Date(`${reminder.due_date}T00:00:00`);
   if (date < due) return false;
   if (reminder.recurrence === "none") return isoDate(date) === reminder.due_date;
-  if (reminder.recurrence === "monthly") return date.getDate() === due.getDate();
-  return date.getMonth() === due.getMonth() && date.getDate() === due.getDate();
+
+  if (reminder.repeat_until && isoDate(date) > reminder.repeat_until) return false;
+
+  const interval = Math.max(1, reminder.recurrence_interval || 1);
+  const target = isoDate(date);
+
+  if (reminder.recurrence === "daily" || reminder.recurrence === "weekly") {
+    const perStep = reminder.recurrence === "weekly" ? 7 * interval : interval;
+    const days = Math.round((date.getTime() - due.getTime()) / 86_400_000);
+    return days >= 0 && days % perStep === 0;
+  }
+
+  const months = reminder.recurrence === "yearly" ? 12 * interval : interval;
+  // Bounded: a month view is 6 weeks, so this walks at most a couple of steps
+  // for a monthly rule and stops the moment it passes the date asked about.
+  for (let step = 0; step < 400; step += 1) {
+    const candidate = addMonths(due, months * step);
+    const iso = isoDate(candidate);
+    if (iso === target) return true;
+    if (iso > target) return false;
+  }
+  return false;
 }
 
 function googleCalendarUrl(reminder: Reminder) {
@@ -144,7 +179,7 @@ export default function CalendarPage() {
 
   const edit = (item: Reminder) => {
     setEditing(item.id);
-    setForm({ title: item.title, reminder_type: item.reminder_type, due_date: item.due_date, recurrence: item.recurrence, notes: item.notes, animal_id: item.animal_id });
+    setForm({ title: item.title, reminder_type: item.reminder_type, due_date: item.due_date, recurrence: item.recurrence, recurrence_interval: item.recurrence_interval, repeat_until: item.repeat_until, notes: item.notes, animal_id: item.animal_id });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -166,8 +201,40 @@ export default function CalendarPage() {
         </select>
         <input required aria-label="Due date" type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2" />
         <select aria-label="Repeat" value={form.recurrence} onChange={(e) => setForm({ ...form, recurrence: e.target.value as ReminderPayload["recurrence"] })} className="rounded-lg border border-slate-300 px-3 py-2">
-          <option value="none">Does not repeat</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option>
+          <option value="none">Does not repeat</option>
+          <option value="daily">Every N days</option>
+          <option value="weekly">Every N weeks</option>
+          <option value="monthly">Every N months</option>
+          <option value="yearly">Every N years</option>
         </select>
+        {/*
+          Both only appear once something repeats. An interval box beside "does
+          not repeat" is a control with no meaning, and an end date for a one-off
+          is a second way to say the same thing as the due date.
+        */}
+        {form.recurrence !== "none" && (
+          <input
+            required
+            aria-label="Repeat every"
+            type="number"
+            min={1}
+            max={365}
+            value={form.recurrence_interval ?? 1}
+            onChange={(e) => setForm({ ...form, recurrence_interval: Math.max(1, Number(e.target.value) || 1) })}
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            placeholder="Repeat every"
+          />
+        )}
+        {form.recurrence !== "none" && (
+          <input
+            aria-label="Repeat until"
+            type="date"
+            value={form.repeat_until ?? ""}
+            onChange={(e) => setForm({ ...form, repeat_until: e.target.value || null })}
+            className="rounded-lg border border-slate-300 px-3 py-2"
+            title="Stop repeating after this date (optional)"
+          />
+        )}
         <input aria-label="Notes" placeholder="Notes (optional)" value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2" />
         <div className="flex gap-2 md:col-span-3">
           <button disabled={saving || animals.length === 0} className="rounded-lg bg-primary-600 px-4 py-2 font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : editing ? "Update reminder" : "Add reminder"}</button>

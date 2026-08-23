@@ -30,6 +30,9 @@ class UserRead(BaseModel):
     clinic_country: str | None = None
     clinic_hours: str | None = None
     accepts_appointments: bool = False
+    notify_in_app: bool = True
+    notify_email: bool = True
+    notify_lead_days: int = 1
     verification_status: VerificationStatus
     # Convenience flag so clients never re-derive "vet AND verified".
     is_verified_vet: bool
@@ -120,6 +123,11 @@ class UserUpdate(BaseModel):
     clinic_country: str | None = Field(default=None, max_length=120)
     clinic_hours: str | None = Field(default=None, max_length=500)
     accepts_appointments: bool | None = None
+    notify_in_app: bool | None = None
+    notify_email: bool | None = None
+    # Capped rather than unbounded: an alert 200 days before a booster is not a
+    # reminder, it is noise, and the scheduler would announce it every day.
+    notify_lead_days: int | None = Field(default=None, ge=0, le=30)
 
 
 class PasswordChange(BaseModel):

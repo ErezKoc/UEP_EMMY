@@ -13,6 +13,11 @@ class ReminderCreate(BaseModel):
     reminder_type: ReminderType
     due_date: date
     recurrence: Recurrence = Recurrence.NONE
+    # Bounded at both ends. Below 1 every occurrence generator would loop on
+    # the same date forever; the upper bound is arbitrary but keeps "every
+    # 4000 weeks" out of a scheduler that walks occurrences one at a time.
+    recurrence_interval: int = Field(default=1, ge=1, le=365)
+    repeat_until: date | None = None
     notes: str | None = None
     animal_id: uuid.UUID
 
@@ -34,6 +39,13 @@ class ReminderRead(BaseModel):
     reminder_type: ReminderType
     due_date: date
     recurrence: Recurrence
+    recurrence_interval: int
+    repeat_until: date | None
+    #: The next date this falls on, computed server-side. The calendar can work
+    #: it out too, but a notification email cannot, and both must agree.
+    next_occurrence: date | None = None
+    #: The rule in words - "every 3 months, until 01 Dec 2026".
+    recurrence_description: str = "does not repeat"
     notes: str | None
     animal_id: uuid.UUID
     owner_id: uuid.UUID

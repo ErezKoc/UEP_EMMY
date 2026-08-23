@@ -17,6 +17,8 @@ from app.api.deps import get_active_user, get_current_user
 from app.db.session import get_db
 from app.models import Animal, Reminder, ReminderType, User, UserRole
 from app.models.appointment import Appointment, AppointmentStatus
+from app.models.notification import NotificationKind
+from app.services.notifications import notify
 from app.schemas.appointment import (
     AppointmentCreate,
     AppointmentDecision,
@@ -119,6 +121,25 @@ def request_appointment(
         preferred_time_note=(payload.preferred_time_note or "").strip() or None,
     )
     db.add(appointment)
+    db.flush()
+
+    # Inside the same transaction as the request itself. A practice told about
+    # an appointment that then failed to save would be worse than not being
+    # told at all.
+    pet = f" about {animal.name}" if animal else ""
+    notify(
+        db,
+        user=vet,
+        kind=NotificationKind.APPOINTMENT_REQUESTED,
+        title="New appointment request",
+        body=(
+            f"{current_user.display_name} asked for an appointment{pet} on "
+            f"{appointment.preferred_date:%d %b %Y}. Reason: {appointment.reason}"
+        ),
+        dedupe_key=f"appointment:{appointment.id}:requested",
+        link="/appointments",
+    )
+
     db.commit()
     db.refresh(appointment)
     return appointment
@@ -150,6 +171,20 @@ def respond_to_appointment(
 
     if not payload.confirm:
         appointment.status = AppointmentStatus.DECLINED
+        practice = appointment.vet.clinic_name or appointment.vet.display_name
+        notify(
+            db,
+            user=appointment.owner,
+            kind=NotificationKind.APPOINTMENT_DECLINED,
+            title="Appointment request declined",
+            body=(
+                f"{practice} could not take your appointment on "
+                f"{appointment.preferred_date:%d %b %Y}."
+                + (f" They said: {note}" if note else "")
+            ),
+            dedupe_key=f"appointment:{appointment.id}:declined",
+            link="/appointments",
+        )
         db.commit()
         db.refresh(appointment)
         return appointment
@@ -179,6 +214,29 @@ def respond_to_appointment(
         db.add(reminder)
         db.flush()
         appointment.reminder_id = reminder.id
+
+    practice = appointment.vet.clinic_name or appointment.vet.display_name
+    moved = scheduled != appointment.preferred_date
+    notify(
+        db,
+        user=appointment.owner,
+        kind=NotificationKind.APPOINTMENT_CONFIRMED,
+        title="Appointment confirmed",
+        body=(
+            f"{practice} confirmed your appointment for {scheduled:%d %b %Y}."
+            # The changed day is the single most important thing in this
+            # message, so it is said in the message rather than left for the
+            # owner to notice by comparing two dates.
+            + (
+                f" This is a different day from the {appointment.preferred_date:%d %b %Y} you asked for."
+                if moved
+                else ""
+            )
+            + (f" They said: {note}" if note else "")
+        ),
+        dedupe_key=f"appointment:{appointment.id}:confirmed",
+        link="/appointments",
+    )
 
     db.commit()
     db.refresh(appointment)
@@ -214,6 +272,23 @@ def cancel_appointment(
 
     appointment.status = AppointmentStatus.CANCELLED
     appointment.responded_at = datetime.now(timezone.utc)
+
+    # The other party, whoever that is. Telling the person who just pressed
+    # Cancel that it was cancelled is noise; the one who did not press it is
+    # the one who needs to know.
+    other = appointment.vet if current_user.id == appointment.owner_id else appointment.owner
+    when = appointment.scheduled_date or appointment.preferred_date
+    notify(
+        db,
+        user=other,
+        kind=NotificationKind.APPOINTMENT_CANCELLED,
+        title="Appointment cancelled",
+        body=(
+            f"{current_user.display_name} cancelled the appointment on {when:%d %b %Y}."
+        ),
+        dedupe_key=f"appointment:{appointment.id}:cancelled",
+        link="/appointments",
+    )
     db.commit()
     db.refresh(appointment)
     return appointment

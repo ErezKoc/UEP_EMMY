@@ -32,3 +32,25 @@ def pytest_collection_modifyitems(config, items):
 @pytest.fixture
 def network_enabled(request) -> bool:
     return bool(request.config.getoption("--run-network"))
+
+
+@pytest.fixture(autouse=True)
+def outbox_in_tmp_path(tmp_path, monkeypatch):
+    """Keep the email outbox out of the project directory.
+
+    Anything that creates a notification asks the email sender to send it, and
+    with no SMTP configured the sender writes a real `.eml` file. Under test
+    that meant every run littered `backend/storage/outbox` with messages
+    addressed to fixtures - dozens of them before anybody noticed.
+
+    Autouse because the tests that trigger it do not look like email tests:
+    they create a reminder, or confirm an appointment, and the email is a
+    consequence three layers down.
+    """
+    from app.services import email as email_module
+
+    sender = email_module.EmailSender()
+    sender.outbox = tmp_path / "outbox"
+    monkeypatch.setattr(email_module, "_sender", sender)
+    yield
+    monkeypatch.setattr(email_module, "_sender", None)
