@@ -7,6 +7,11 @@ from app.schemas.analysis import (
     BreedCandidate,
 )
 from app.schemas.animal import AnimalCreate, AnimalRead, AnimalUpdate
+from app.schemas.appointment import (
+    AppointmentCreate,
+    AppointmentDecision,
+    AppointmentRead,
+)
 from app.schemas.assistant import (
     AssistantAction,
     AssistantActionType,
@@ -37,6 +42,9 @@ __all__ = [
     "AnimalCreate",
     "AnimalRead",
     "AnimalUpdate",
+    "AppointmentCreate",
+    "AppointmentDecision",
+    "AppointmentRead",
     "AuthResponse",
     "BreedCandidate",
     "CommentCreate",

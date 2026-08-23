@@ -21,6 +21,7 @@ import CommunityPage from "./pages/community/CommunityPage";
 import NewPostPage from "./pages/community/NewPostPage";
 import PostDetailPage from "./pages/community/PostDetailPage";
 import VetsPage from "./pages/community/VetsPage";
+import AppointmentsPage from "./pages/appointments/AppointmentsPage";
 import PetDetailPage from "./pages/pets/PetDetailPage";
 import PetsPage from "./pages/pets/PetsPage";
 import CalendarPage from "./pages/reminders/CalendarPage";
@@ -170,6 +171,14 @@ export default function App() {
               />
               <Route path="/community/:postId" element={<PostDetailPage />} />
               <Route path="/vets" element={<VetsPage />} />
+              <Route
+                path="/appointments"
+                element={
+                  <RequireAuth>
+                    <AppointmentsPage />
+                  </RequireAuth>
+                }
+              />
 
               <Route
                 path="/admin/verifications"

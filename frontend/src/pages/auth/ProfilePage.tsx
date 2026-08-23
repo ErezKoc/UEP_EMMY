@@ -25,6 +25,22 @@ function ProfileContent({ user }: { user: CurrentUser }) {
   const [bio, setBio] = useState(user.bio ?? "");
   const [clinicName, setClinicName] = useState(user.clinic_name ?? "");
   const [licenseNumber, setLicenseNumber] = useState(user.license_number ?? "");
+  // The practice's public details. One state entry each rather than an object,
+  // to match the two fields above and keep the form uncontroversial.
+  const [clinicPhone, setClinicPhone] = useState(user.clinic_phone ?? "");
+  const [clinicEmergencyPhone, setClinicEmergencyPhone] = useState(
+    user.clinic_emergency_phone ?? "",
+  );
+  const [clinicEmail, setClinicEmail] = useState(user.clinic_email ?? "");
+  const [clinicWebsite, setClinicWebsite] = useState(user.clinic_website ?? "");
+  const [clinicAddressLine, setClinicAddressLine] = useState(user.clinic_address_line ?? "");
+  const [clinicCity, setClinicCity] = useState(user.clinic_city ?? "");
+  const [clinicPostcode, setClinicPostcode] = useState(user.clinic_postcode ?? "");
+  const [clinicCountry, setClinicCountry] = useState(user.clinic_country ?? "");
+  const [clinicHours, setClinicHours] = useState(user.clinic_hours ?? "");
+  const [acceptsAppointments, setAcceptsAppointments] = useState(
+    user.accepts_appointments ?? false,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -59,7 +75,20 @@ function ProfileContent({ user }: { user: CurrentUser }) {
         display_name: displayName.trim(),
         bio: bio.trim(),
         ...(isVet
-          ? { clinic_name: clinicName.trim(), license_number: licenseNumber.trim() }
+          ? {
+              clinic_name: clinicName.trim(),
+              license_number: licenseNumber.trim(),
+              clinic_phone: clinicPhone.trim(),
+              clinic_emergency_phone: clinicEmergencyPhone.trim(),
+              clinic_email: clinicEmail.trim(),
+              clinic_website: clinicWebsite.trim(),
+              clinic_address_line: clinicAddressLine.trim(),
+              clinic_city: clinicCity.trim(),
+              clinic_postcode: clinicPostcode.trim(),
+              clinic_country: clinicCountry.trim(),
+              clinic_hours: clinicHours.trim(),
+              accepts_appointments: acceptsAppointments,
+            }
           : {}),
       });
       setUser(updated);
@@ -145,6 +174,98 @@ function ProfileContent({ user }: { user: CurrentUser }) {
                 hint="Required to request professional verification."
                 maxLength={64}
               />
+
+              {/*
+                Everything below is published in the directory. Said once, here,
+                rather than repeated as a hint on nine fields — and said before
+                them rather than after, so nobody types an address they did not
+                mean to publish and finds out underneath the box.
+              */}
+              <div className="border-t border-slate-100 pt-4">
+                <h3 className="text-sm font-semibold text-slate-800">Practice details</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Shown publicly on the Vets page so owners can reach you. Leave anything blank
+                  that you would rather not publish. Your sign-in email is never shown.
+                </p>
+              </div>
+
+              <Input
+                label="Phone"
+                value={clinicPhone}
+                onChange={(event) => setClinicPhone(event.target.value)}
+                maxLength={40}
+              />
+              <Input
+                label="Out-of-hours phone"
+                value={clinicEmergencyPhone}
+                onChange={(event) => setClinicEmergencyPhone(event.target.value)}
+                hint="Shown first and marked urgent. Leave blank if you have no out-of-hours line."
+                maxLength={40}
+              />
+              <Input
+                label="Public email"
+                type="email"
+                value={clinicEmail}
+                onChange={(event) => setClinicEmail(event.target.value)}
+                maxLength={255}
+              />
+              <Input
+                label="Website"
+                value={clinicWebsite}
+                onChange={(event) => setClinicWebsite(event.target.value)}
+                placeholder="https://"
+                maxLength={1024}
+              />
+              <Input
+                label="Street address"
+                value={clinicAddressLine}
+                onChange={(event) => setClinicAddressLine(event.target.value)}
+                maxLength={255}
+              />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Input
+                  label="City"
+                  value={clinicCity}
+                  onChange={(event) => setClinicCity(event.target.value)}
+                  maxLength={120}
+                />
+                <Input
+                  label="Postcode"
+                  value={clinicPostcode}
+                  onChange={(event) => setClinicPostcode(event.target.value)}
+                  maxLength={20}
+                />
+                <Input
+                  label="Country"
+                  value={clinicCountry}
+                  onChange={(event) => setClinicCountry(event.target.value)}
+                  maxLength={120}
+                />
+              </div>
+              <Textarea
+                label="Opening hours"
+                value={clinicHours}
+                onChange={(event) => setClinicHours(event.target.value)}
+                placeholder="Mon-Fri 08:00-18:00, Sat 09:00-13:00. Closed Sundays."
+                hint="Free text, so split hours and seasonal closures can be written as they are."
+                rows={2}
+                maxLength={500}
+              />
+
+              <label className="flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={acceptsAppointments}
+                  onChange={(event) => setAcceptsAppointments(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span>
+                  <span className="font-medium">Take appointment requests here.</span>{" "}
+                  Owners can send you a request with a reason and a preferred day; you confirm,
+                  offer another day, or decline. Leave this off and owners will only see your
+                  contact details — a request nobody is watching for is worse than no button.
+                </span>
+              </label>
             </>
           )}
 

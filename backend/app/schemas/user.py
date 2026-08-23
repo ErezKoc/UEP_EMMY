@@ -17,6 +17,19 @@ class UserRead(BaseModel):
     avatar_url: str | None = None
     clinic_name: str | None = None
     license_number: str | None = None
+    # Carried on the account too, not only on the public directory entry: the
+    # profile form reads these back after a save, and without them the fields
+    # a veterinarian just filled in would come back empty.
+    clinic_phone: str | None = None
+    clinic_emergency_phone: str | None = None
+    clinic_email: str | None = None
+    clinic_website: str | None = None
+    clinic_address_line: str | None = None
+    clinic_city: str | None = None
+    clinic_postcode: str | None = None
+    clinic_country: str | None = None
+    clinic_hours: str | None = None
+    accepts_appointments: bool = False
     verification_status: VerificationStatus
     # Convenience flag so clients never re-derive "vet AND verified".
     is_verified_vet: bool
@@ -72,6 +85,19 @@ class VeterinarianRead(BaseModel):
     avatar_url: str | None = None
     clinic_name: str | None = None
     license_number: str | None = None
+    # Public on purpose: a practice's phone number and address are the details
+    # it advertises. The account's own login email stays private — `clinic_email`
+    # is a separate field the practice chooses to publish.
+    clinic_phone: str | None = None
+    clinic_emergency_phone: str | None = None
+    clinic_email: str | None = None
+    clinic_website: str | None = None
+    clinic_address_line: str | None = None
+    clinic_city: str | None = None
+    clinic_postcode: str | None = None
+    clinic_country: str | None = None
+    clinic_hours: str | None = None
+    accepts_appointments: bool = False
     verification_status: VerificationStatus
     is_verified_vet: bool
 
@@ -84,6 +110,16 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     clinic_name: str | None = Field(default=None, max_length=255)
     license_number: str | None = Field(default=None, max_length=64)
+    clinic_phone: str | None = Field(default=None, max_length=40)
+    clinic_emergency_phone: str | None = Field(default=None, max_length=40)
+    clinic_email: str | None = Field(default=None, max_length=255)
+    clinic_website: str | None = Field(default=None, max_length=1024)
+    clinic_address_line: str | None = Field(default=None, max_length=255)
+    clinic_city: str | None = Field(default=None, max_length=120)
+    clinic_postcode: str | None = Field(default=None, max_length=20)
+    clinic_country: str | None = Field(default=None, max_length=120)
+    clinic_hours: str | None = Field(default=None, max_length=500)
+    accepts_appointments: bool | None = None
 
 
 class PasswordChange(BaseModel):

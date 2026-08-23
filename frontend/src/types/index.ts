@@ -32,6 +32,21 @@ export interface User {
  * author profile — so they live here rather than on `User`.
  */
 export interface CurrentUser extends User {
+  /**
+   * The practice details, on the account rather than only on the public
+   * directory entry — this is what the profile form edits. Null for owners,
+   * and null for a veterinarian who has not filled them in.
+   */
+  clinic_phone: string | null;
+  clinic_emergency_phone: string | null;
+  clinic_email: string | null;
+  clinic_website: string | null;
+  clinic_address_line: string | null;
+  clinic_city: string | null;
+  clinic_postcode: string | null;
+  clinic_country: string | null;
+  clinic_hours: string | null;
+  accepts_appointments: boolean;
   suspended_until: string | null;
   moderation_note: string | null;
   /** False while suspended or banned: posting, commenting and reporting are off. */
@@ -67,6 +82,22 @@ export interface ProfileUpdatePayload {
   email?: string;
   clinic_name?: string;
   license_number?: string;
+  /*
+   * Listed even though the profile form builds this object with a spread,
+   * which skips TypeScript's excess-property check: without these here a
+   * misspelt field name would compile, send, and be silently dropped by the
+   * backend, and the veterinarian would just see their details not save.
+   */
+  clinic_phone?: string;
+  clinic_emergency_phone?: string;
+  clinic_email?: string;
+  clinic_website?: string;
+  clinic_address_line?: string;
+  clinic_city?: string;
+  clinic_postcode?: string;
+  clinic_country?: string;
+  clinic_hours?: string;
+  accepts_appointments?: boolean;
 }
 
 export interface AuthResponse {
@@ -498,8 +529,79 @@ export interface Veterinarian {
   avatar_url: string | null;
   clinic_name: string | null;
   license_number: string | null;
+  /**
+   * How to reach the practice. All nullable, because a profile written before
+   * these fields existed has none of them and a directory that hides such a
+   * vet entirely would be worse than one showing a name with no phone number.
+   * Every consumer has to handle the empty case.
+   */
+  clinic_phone: string | null;
+  clinic_emergency_phone: string | null;
+  clinic_email: string | null;
+  clinic_website: string | null;
+  clinic_address_line: string | null;
+  clinic_city: string | null;
+  clinic_postcode: string | null;
+  clinic_country: string | null;
+  clinic_hours: string | null;
+  /** Whether this practice takes appointment requests through the platform. */
+  accepts_appointments: boolean;
   verification_status: VerificationStatus;
   is_verified_vet: boolean;
+}
+
+/** One service to call when no practice is open, with the page it came from. */
+export interface EmergencyContact {
+  name: string;
+  /** As published — the form a person reads and dials by hand. */
+  phone: string;
+  /** The `tel:` target, which is not the same string as `phone`. */
+  dial: string;
+  when: string;
+  caveat: string | null;
+  coverage: string;
+  source_name: string;
+  source_url: string;
+  accessed: string;
+}
+
+export interface EmergencyContacts {
+  /** Shown above the list, always. It says what these services cannot do. */
+  note: string;
+  contacts: EmergencyContact[];
+}
+
+export type AppointmentStatus = "requested" | "confirmed" | "declined" | "cancelled";
+
+/**
+ * A request for an appointment, and the practice's answer.
+ *
+ * Not a booked slot: `preferred_date` is what the owner asked for and
+ * `scheduled_date` is what the practice confirmed, and they are kept apart so a
+ * moved appointment can never be mistaken for the day that was chosen.
+ */
+export interface Appointment {
+  id: string;
+  status: AppointmentStatus;
+  reason: string;
+  preferred_date: string;
+  preferred_time_note: string | null;
+  scheduled_date: string | null;
+  vet_note: string | null;
+  created_at: string;
+  responded_at: string | null;
+  owner: User;
+  vet: Veterinarian;
+  animal: Animal | null;
+  reminder_id: string | null;
+}
+
+export interface AppointmentPayload {
+  vet_id: string;
+  reason: string;
+  preferred_date: string;
+  preferred_time_note?: string | null;
+  animal_id?: string | null;
 }
 
 export interface Comment {

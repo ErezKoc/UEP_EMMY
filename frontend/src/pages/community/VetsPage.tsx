@@ -1,14 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { ApiError, getVeterinarians } from "../../api/client";
+import { useSession } from "../../auth/SessionContext";
+import AppointmentRequestDialog from "../../components/AppointmentRequestDialog";
+import ClinicContact from "../../components/ClinicContact";
+import EmergencyContactsPanel from "../../components/EmergencyContactsPanel";
 import ReportButton from "../../components/ReportButton";
-import { Avatar, Button, EmptyState, RoleBadge, SearchIcon, Spinner, StethoscopeIcon } from "../../components/ui";
+import {
+  Avatar,
+  Badge,
+  Button,
+  CalendarIcon,
+  EmptyState,
+  RoleBadge,
+  SearchIcon,
+  Spinner,
+  StethoscopeIcon,
+} from "../../components/ui";
 import type { Veterinarian } from "../../types";
 
 export default function VetsPage() {
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [acceptingOnly, setAcceptingOnly] = useState(false);
+  // Which practice's request dialog is open, by id. Held here rather than in
+  // each card so only one can be open at a time.
+  const [requesting, setRequesting] = useState<string | null>(null);
+  const { user } = useSession();
   const [vets, setVets] = useState<Veterinarian[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -17,13 +37,13 @@ export default function VetsPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      setVets(await getVeterinarians(query, verifiedOnly));
+      setVets(await getVeterinarians(query, verifiedOnly, acceptingOnly));
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : "Could not load veterinarians.");
     } finally {
       setIsLoading(false);
     }
-  }, [query, verifiedOnly]);
+  }, [query, verifiedOnly, acceptingOnly]);
 
   useEffect(() => {
     void loadVets();
@@ -38,8 +58,13 @@ export default function VetsPage() {
     <div className="mx-auto max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Veterinarians</h1>
-        <p className="mt-1 text-sm text-slate-500">Meet the veterinary professionals participating in the community.</p>
+        <p className="mt-1 text-sm text-slate-500">
+          Contact details, opening hours and appointment requests for the practices on this
+          platform.
+        </p>
       </div>
+
+      <EmergencyContactsPanel />
 
       <form onSubmit={handleSearch} className="mt-6 flex max-w-xl gap-2">
         <label htmlFor="vet-search" className="sr-only">Search veterinarians</label>
@@ -50,7 +75,7 @@ export default function VetsPage() {
             type="search"
             value={draftQuery}
             onChange={(event) => setDraftQuery(event.target.value)}
-            placeholder="Search by name or clinic"
+            placeholder="Search by name, clinic, city or postcode"
             className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
           />
         </div>
@@ -65,6 +90,16 @@ export default function VetsPage() {
           className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
         />
         Verified veterinarians only
+      </label>
+
+      <label className="mt-3 ml-4 inline-flex items-center gap-2 text-sm text-slate-600">
+        <input
+          type="checkbox"
+          checked={acceptingOnly}
+          onChange={(event) => setAcceptingOnly(event.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+        />
+        Taking appointment requests
       </label>
 
       <div className="mt-6">
@@ -92,12 +127,49 @@ export default function VetsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="font-semibold text-slate-800">{vet.display_name}</h2>
                       <RoleBadge user={vet} />
+                      {vet.accepts_appointments && (
+                        <Badge variant="success">Takes appointments</Badge>
+                      )}
                     </div>
                     <p className="mt-1 text-sm font-medium text-slate-600">{vet.clinic_name ?? "Independent veterinarian"}</p>
                     {vet.license_number && <p className="mt-1 text-xs text-slate-400">License {vet.license_number}</p>}
                   </div>
                 </div>
                 {vet.bio && <p className="mt-4 text-sm leading-relaxed text-slate-600">{vet.bio}</p>}
+
+                <ClinicContact vet={vet} />
+
+                {vet.accepts_appointments && (
+                  <div className="mt-4">
+                    {user ? (
+                      <Button size="sm" onClick={() => setRequesting(vet.id)}>
+                        <CalendarIcon className="h-4 w-4" />
+                        Request an appointment
+                      </Button>
+                    ) : (
+                      /*
+                        Signed out, the button would open a dialog that could
+                        only fail on submit. The link says what is needed
+                        instead, and RequireAuth brings them back here.
+                      */
+                      <Link to="/login" state={{ from: "/vets" }}>
+                        <Button size="sm" variant="secondary">
+                          <CalendarIcon className="h-4 w-4" />
+                          Sign in to request an appointment
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                )}
+
+                {user && (
+                  <AppointmentRequestDialog
+                    vet={vet}
+                    open={requesting === vet.id}
+                    onClose={() => setRequesting(null)}
+                  />
+                )}
+
                 <div className="mt-3 flex justify-end">
                   <ReportButton
                     authorId={vet.id}

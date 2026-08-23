@@ -16,6 +16,10 @@ const NAV_ITEMS = [
   { to: "/new-owner-guide", label: "Owner Guide" },
   { to: "/community", label: "Community" },
   { to: "/vets", label: "Vets" },
+  // Shown to everyone, like Calendar and My Pets above: the route itself is
+  // behind RequireAuth, so a signed-out click lands on the login page and
+  // comes back here. NAV_ITEMS has no notion of a signed-in-only entry.
+  { to: "/appointments", label: "Appointments" },
 ];
 
 function navLinkClasses({ isActive }: { isActive: boolean }): string {

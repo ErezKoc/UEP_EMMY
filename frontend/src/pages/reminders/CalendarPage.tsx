@@ -214,7 +214,10 @@ export default function CalendarPage() {
             const current = date.getMonth() === month.getMonth();
             return <div key={isoDate(date)} className={`min-h-28 border-b border-r border-slate-200 p-1.5 ${current ? "bg-white" : "bg-slate-50 text-slate-400"}`}>
               <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm ${isoDate(date) === isoDate(today) ? "bg-primary-600 text-white" : ""}`}>{date.getDate()}</span>
-              <div className="space-y-1">{entries.map((item) => <button key={item.id} onClick={() => edit(item)} title={`${item.animal.name} — ${labels[item.reminder_type]}`} className={`block w-full truncate rounded px-1.5 py-1 text-left text-xs font-medium ${colors[item.reminder_type]}`}>{item.animal.name}: {item.title}</button>)}</div>
+              <div className="space-y-1">{entries.map((item) => <button key={item.id} onClick={() => edit(item)} title={[`${item.animal.name} — ${labels[item.reminder_type]}`, item.notes]
+                .filter(Boolean)
+                .join("\n")}
+ className={`block w-full truncate rounded px-1.5 py-1 text-left text-xs font-medium ${colors[item.reminder_type]}`}>{item.animal.name}: {item.title}</button>)}</div>
             </div>;
           })}
         </div>

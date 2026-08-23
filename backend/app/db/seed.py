@@ -47,6 +47,18 @@ def seed_demo_data(db: Session) -> None:
         clinic_name="Riverside Veterinary Clinic",
         license_number="VET-2024-0042",
         bio="Small-animal veterinarian with 12 years of experience. Special interest in nutrition and preventive care.",
+        clinic_phone="(555) 014-2280",
+        clinic_emergency_phone="(555) 014-2299",
+        clinic_email="reception@riversidevetclinic.example",
+        clinic_website="https://riversidevetclinic.example",
+        clinic_address_line="118 Riverside Drive",
+        clinic_city="Portland",
+        clinic_postcode="97205",
+        clinic_country="United States",
+        clinic_hours="Mon-Fri 08:00-18:00, Sat 09:00-13:00. Closed Sundays.",
+        # The demo needs one practice that answers requests and one that does
+        # not, or the button's absence looks like a bug rather than a setting.
+        accepts_appointments=True,
         # Pre-verified so the demo shows the badge without a review round.
         verification_status=VerificationStatus.VERIFIED,
     )
@@ -60,6 +72,13 @@ def seed_demo_data(db: Session) -> None:
         clinic_name="Anatolia Animal Hospital",
         license_number="VET-2026-0117",
         bio="Newly joined veterinarian focusing on dermatology.",
+        clinic_phone="+90 312 555 0142",
+        clinic_email="info@anatoliaanimalhospital.example",
+        clinic_address_line="Kizilay Caddesi 42",
+        clinic_city="Ankara",
+        clinic_postcode="06420",
+        clinic_country="Turkiye",
+        clinic_hours="Every day 09:00-19:00.",
     )
     db.add_all([owner, vet, pending_vet])
     db.flush()
@@ -163,4 +182,66 @@ def ensure_admin_account(db: Session) -> None:
             bio="Reviews veterinarian credentials.",
         )
     )
+    db.commit()
+
+
+#: The practice details the two demo veterinarians advertise.
+#:
+#: Kept beside `seed_demo_data`'s definitions rather than inside them because
+#: `ensure_demo_clinic_details` below has to be able to apply them to accounts
+#: that already exist — see its docstring.
+_DEMO_CLINIC_DETAILS: dict[str, dict[str, object]] = {
+    "demo.vet@uepemmy.com": {
+        "clinic_phone": "(555) 014-2280",
+        "clinic_emergency_phone": "(555) 014-2299",
+        "clinic_email": "reception@riversidevetclinic.example",
+        "clinic_website": "https://riversidevetclinic.example",
+        "clinic_address_line": "118 Riverside Drive",
+        "clinic_city": "Portland",
+        "clinic_postcode": "97205",
+        "clinic_country": "United States",
+        "clinic_hours": "Mon-Fri 08:00-18:00, Sat 09:00-13:00. Closed Sundays.",
+        "accepts_appointments": True,
+    },
+    "demo.newvet@uepemmy.com": {
+        "clinic_phone": "+90 312 555 0142",
+        "clinic_email": "info@anatoliaanimalhospital.example",
+        "clinic_address_line": "Kizilay Caddesi 42",
+        "clinic_city": "Ankara",
+        "clinic_postcode": "06420",
+        "clinic_country": "Turkiye",
+        "clinic_hours": "Every day 09:00-19:00.",
+        # Left off deliberately, so the directory shows both states.
+        "accepts_appointments": False,
+    },
+}
+
+
+def ensure_demo_clinic_details(db: Session) -> None:
+    """Fill in the demo vets' practice details if they are still blank.
+
+    Runs on every boot, for the same reason `ensure_admin_account` does:
+    `seed_demo_data` returns early the moment any user exists, so every
+    database created before these columns existed — including a Docker volume
+    that has been carried across rebuilds — would show the demo veterinarians
+    with no phone number and no address forever.
+
+    Only ever writes into a field that is empty, and only on the two seeded demo
+    accounts. A practice that has edited its own details keeps them, and nothing
+    here can overwrite a real clinic's phone number with a made-up one.
+    """
+    for email, details in _DEMO_CLINIC_DETAILS.items():
+        vet = db.scalars(select(User).where(User.email == email)).first()
+        if vet is None:
+            continue
+        for field, value in details.items():
+            # `accepts_appointments` is a boolean and False is a legitimate
+            # stored value, so "is it blank" is only asked of the text fields.
+            if isinstance(value, bool):
+                continue
+            if not getattr(vet, field, None):
+                setattr(vet, field, value)
+        # Set only while it is still off, so a practice that turned it off stays off.
+        if details.get("accepts_appointments") and not vet.accepts_appointments:
+            vet.accepts_appointments = True
     db.commit()

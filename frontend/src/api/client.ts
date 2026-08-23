@@ -268,13 +268,59 @@ export function createComment(postId: string, content: string) {
   return requestJson<import("../types").Comment>(`/posts/${postId}/comments`, "POST", { content });
 }
 
-export async function getVeterinarians(q = "", verifiedOnly = false): Promise<Veterinarian[]> {
+export async function getVeterinarians(
+  q = "",
+  verifiedOnly = false,
+  acceptingOnly = false,
+): Promise<Veterinarian[]> {
   const params = new URLSearchParams();
   if (q.trim()) params.set("q", q.trim());
   if (verifiedOnly) params.set("verified_only", "true");
+  if (acceptingOnly) params.set("accepting_only", "true");
   const suffix = params.size > 0 ? `?${params}` : "";
   const response = await apiFetch(`${API_BASE}/vets${suffix}`);
   return parseResponse<Veterinarian[]>(response);
+}
+
+/** Unauthenticated on purpose: an emergency number is no use behind a login. */
+export async function getEmergencyContacts(): Promise<
+  import("../types").EmergencyContacts
+> {
+  const response = await apiFetch(`${API_BASE}/vets/emergency-contacts`);
+  return parseResponse<import("../types").EmergencyContacts>(response);
+}
+
+// ----------------------------------------------------------- appointments
+
+export async function getAppointments(openOnly = false): Promise<
+  import("../types").Appointment[]
+> {
+  const suffix = openOnly ? "?open_only=true" : "";
+  const response = await apiFetch(`${API_BASE}/appointments${suffix}`, {
+    headers: authHeaders(),
+  });
+  return parseResponse<import("../types").Appointment[]>(response);
+}
+
+export function requestAppointment(
+  payload: import("../types").AppointmentPayload,
+): Promise<import("../types").Appointment> {
+  return requestJson<import("../types").Appointment>("/appointments", "POST", payload);
+}
+
+export function respondToAppointment(
+  id: string,
+  decision: { confirm: boolean; scheduled_date?: string | null; vet_note?: string | null },
+): Promise<import("../types").Appointment> {
+  return requestJson<import("../types").Appointment>(
+    `/appointments/${id}/respond`,
+    "POST",
+    decision,
+  );
+}
+
+export function cancelAppointment(id: string): Promise<import("../types").Appointment> {
+  return requestJson<import("../types").Appointment>(`/appointments/${id}/cancel`, "POST");
 }
 
 // ------------------------------------------------- veterinarian verification

@@ -263,3 +263,51 @@ export function GavelIcon(props: IconProps) {
     </IconBase>
   );
 }
+
+// Added with the clinic directory: a contact block needs to distinguish a
+// phone number from an address from a website at a glance, and the set above
+// had no way to say any of the three.
+
+export function PhoneIcon({ className }: IconProps) {
+  return (
+    <IconBase className={className}>
+      <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.5 2.8.6a2 2 0 0 1 1.7 2Z" />
+    </IconBase>
+  );
+}
+
+export function MapPinIcon({ className }: IconProps) {
+  return (
+    <IconBase className={className}>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </IconBase>
+  );
+}
+
+export function MailIcon({ className }: IconProps) {
+  return (
+    <IconBase className={className}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m2 7 10 6 10-6" />
+    </IconBase>
+  );
+}
+
+export function GlobeIcon({ className }: IconProps) {
+  return (
+    <IconBase className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20M12 2a15 15 0 0 1 0 20a15 15 0 0 1 0-20Z" />
+    </IconBase>
+  );
+}
+
+export function CalendarIcon({ className }: IconProps) {
+  return (
+    <IconBase className={className}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M8 3v4M16 3v4M3 11h18" />
+    </IconBase>
+  );
+}

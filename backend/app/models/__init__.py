@@ -1,5 +1,6 @@
 from app.models.analysis import AIAnalysisLog
 from app.models.animal import AgeCategory, Animal
+from app.models.appointment import Appointment, AppointmentStatus
 from app.models.moderation import (
     ModerationAction,
     ReportReason,
@@ -18,6 +19,8 @@ __all__ = [
     "AccountStatus",
     "AgeCategory",
     "Animal",
+    "Appointment",
+    "AppointmentStatus",
     "Comment",
     "ModerationAction",
     "Post",

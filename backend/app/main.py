@@ -10,7 +10,7 @@ from sqlalchemy import inspect, text
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.base import Base
-from app.db.seed import ensure_admin_account, seed_demo_data
+from app.db.seed import ensure_admin_account, ensure_demo_clinic_details, seed_demo_data
 from app.db.session import SessionLocal, engine
 from app.services.ai import get_analysis_service
 
@@ -67,6 +67,25 @@ def ensure_compatibility_columns() -> None:
         ),
         "suspended_until": "ALTER TABLE users ADD COLUMN suspended_until TIMESTAMP",
         "moderation_note": "ALTER TABLE users ADD COLUMN moderation_note VARCHAR(1000)",
+        # Clinic contact and location, added with the "find a vet" work. An
+        # existing database has none of these, and every /v1/vets call would
+        # fail with "no such column" until they are added.
+        "clinic_phone": "ALTER TABLE users ADD COLUMN clinic_phone VARCHAR(40)",
+        "clinic_emergency_phone": (
+            "ALTER TABLE users ADD COLUMN clinic_emergency_phone VARCHAR(40)"
+        ),
+        "clinic_email": "ALTER TABLE users ADD COLUMN clinic_email VARCHAR(255)",
+        "clinic_website": "ALTER TABLE users ADD COLUMN clinic_website VARCHAR(1024)",
+        "clinic_address_line": (
+            "ALTER TABLE users ADD COLUMN clinic_address_line VARCHAR(255)"
+        ),
+        "clinic_city": "ALTER TABLE users ADD COLUMN clinic_city VARCHAR(120)",
+        "clinic_postcode": "ALTER TABLE users ADD COLUMN clinic_postcode VARCHAR(20)",
+        "clinic_country": "ALTER TABLE users ADD COLUMN clinic_country VARCHAR(120)",
+        "clinic_hours": "ALTER TABLE users ADD COLUMN clinic_hours VARCHAR(500)",
+        "accepts_appointments": (
+            "ALTER TABLE users ADD COLUMN accepts_appointments BOOLEAN NOT NULL DEFAULT 0"
+        ),
     }
     missing = [
         statement
@@ -119,6 +138,9 @@ async def lifespan(app: FastAPI):
         # Runs on every boot: vet verification is unusable without an admin, and
         # existing databases predate the admin role.
         ensure_admin_account(db)
+        # Same reason: the demo veterinarians were seeded before clinic contact
+        # details existed, and seeding never runs again once there is a user.
+        ensure_demo_clinic_details(db)
 
     # Build the analysis service now rather than on first use. Reading the two
     # ~19 MB ONNX files cold can take well over half a minute in Docker, and
