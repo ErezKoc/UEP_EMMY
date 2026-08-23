@@ -1,6 +1,6 @@
 export type SpeciesType = 'cat' | 'dog';
 
-export type ProductCategory = 'food' | 'toys' | 'accessories';
+export type ProductCategory = string;
 
 export interface Product {
   id: string;
@@ -9,6 +9,8 @@ export interface Product {
   imageUrl: string;
   price: number;
   affiliateLink: string;
+  ratings?: number;
+  no_of_ratings?: number;
 }
 
 export interface SpeciesRecommendationNode {
