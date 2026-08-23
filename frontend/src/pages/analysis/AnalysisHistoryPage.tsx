@@ -10,7 +10,8 @@ import {
   Select,
   Spinner,
 } from "../../components/ui";
-import { capitalize, formatPercent, formatRelativeTime } from "../../lib/format";
+import { capitalize, formatRelativeTime } from "../../lib/format";
+import { confidenceLabel, confidencePill } from "../../lib/confidence";
 import type { AnalysisHistoryItem, Animal } from "../../types";
 
 const ALL_PETS = "";
@@ -35,14 +36,30 @@ function HistoryRow({ item, backTo }: { item: AnalysisHistoryItem; backTo: strin
             <span className="font-semibold text-slate-800 group-hover:text-primary-700">
               {capitalize(result.species)}
             </span>
-            <span className="text-sm text-slate-500">
-              {formatPercent(result.species_confidence)} confidence
+            {/*
+              The band, not the bare percentage. This row said "91% confidence",
+              which reads as "right 91% of the time" — a claim about measured
+              accuracy that nobody has measured. The figure is still on the
+              analysis's own page, after the word that frames it.
+            */}
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${confidencePill(
+                result.species_confidence,
+              )}`}
+            >
+              {confidenceLabel(result.species_confidence)}
             </span>
             {item.animal ? (
               <Badge variant="primary">{item.animal.name}</Badge>
             ) : (
               <Badge variant="neutral">Not linked</Badge>
             )}
+            {/*
+              So a corrected row is recognisable without opening it. The list is
+              where an owner goes looking for the one they fixed, and every row
+              otherwise shows the app's own guess as though nobody had disagreed.
+            */}
+            {item.correction && <Badge variant="primary">Corrected</Badge>}
             {item.triage && (
               <Badge
                 variant={
@@ -63,8 +80,13 @@ function HistoryRow({ item, backTo }: { item: AnalysisHistoryItem; backTo: strin
             )}
           </div>
           <p className="mt-1 truncate text-sm text-slate-600">
+            {/*
+              "Likely X (62%)" hard-coded the word "Likely" regardless of how
+              weak the match was, then put a bare percentage beside it. The word
+              now comes from the figure instead of contradicting it.
+            */}
             {topBreed
-              ? `Likely ${topBreed.breed} (${formatPercent(topBreed.confidence)})`
+              ? `${confidenceLabel(topBreed.confidence)}: ${topBreed.breed}`
               : "No breed estimate"}
             {" / "}
             {result.age_estimate.category} age

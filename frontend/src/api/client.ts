@@ -69,10 +69,15 @@ export async function apiFetch(
     return await fetch(path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
+      // Deliberately does not blame the server. A timeout here means no
+      // response arrived within the window, which covers a slow server AND a
+      // request that never reached one — a connection dropped underneath us,
+      // for instance. Asserting the first sent two people reading backend
+      // logs for a request the backend had never been sent.
       throw new ApiError(
         0,
-        `The server took longer than ${Math.round(timeoutMs / 1000)}s to respond. ` +
-          "It may still be starting up — please try again in a moment.",
+        `No response after ${Math.round(timeoutMs / 1000)}s. The server may be busy or still ` +
+          "starting up, or the connection may have dropped. Please try again.",
       );
     }
     // fetch() rejects with a plain TypeError when it cannot reach the server
@@ -230,6 +235,23 @@ export async function uploadAnimalPhoto(animalId: string, file: File): Promise<A
     UPLOAD_TIMEOUT_MS,
   );
   return parseResponse<Animal>(response);
+}
+
+// ------------------------------------------------------------- analyses
+
+export function updateAnalysis(
+  analysisId: string,
+  payload: import("../types").AnalysisUpdatePayload,
+): Promise<import("../types").AnalysisDetail> {
+  return requestJson<import("../types").AnalysisDetail>(
+    `/analysis/${analysisId}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export function deleteAnalysis(analysisId: string): Promise<void> {
+  return requestJson<void>(`/analysis/${analysisId}`, "DELETE");
 }
 
 // -------------------------------------------------------------------- posts

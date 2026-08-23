@@ -1,9 +1,11 @@
 from app.schemas.analysis import (
     AgeEstimate,
+    AnalysisCorrection,
     AnalysisDetail,
     AnalysisHistoryItem,
     AnalysisResponse,
     AnalysisResult,
+    AnalysisUpdate,
     BreedCandidate,
 )
 from app.schemas.animal import AnimalCreate, AnimalRead, AnimalUpdate
@@ -38,7 +40,9 @@ __all__ = [
     "AnalysisDetail",
     "AnalysisHistoryItem",
     "AnalysisResponse",
+    "AnalysisCorrection",
     "AnalysisResult",
+    "AnalysisUpdate",
     "AnimalCreate",
     "AnimalRead",
     "AnimalUpdate",

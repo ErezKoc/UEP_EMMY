@@ -1,5 +1,6 @@
 import type { AnalysisResponse } from "../types";
 import { capitalize, formatPercent, formatYearsRange } from "../lib/format";
+import { CONFIDENCE_EXPLANATION, confidenceLabel, confidencePill } from "../lib/confidence";
 
 interface AnalysisCardProps {
   analysis: AnalysisResponse | null;
@@ -35,7 +36,13 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-800">Analysis results</h2>
-          <p className="text-xs text-slate-400">model {result.model_version}</p>
+          {/*
+            The model version used to sit here. It is an answer to a question a
+            pet owner did not ask, and it was the first thing under the heading.
+            It is still available — on the analysis's own page, under "Technical
+            details" — for the one conversation that needs it.
+          */}
+          <p className="text-xs text-slate-400">What the app thinks, from the photo</p>
         </div>
         <img
           src={image_url}
@@ -50,8 +57,22 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
           <dd className="mt-1 text-xl font-semibold text-slate-800">
             {capitalize(result.species)}
           </dd>
-          <dd className="text-xs text-slate-500">
-            {formatPercent(result.species_confidence)} confidence
+          <dd className="mt-1">
+            <span
+              className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${confidencePill(
+                result.species_confidence,
+              )}`}
+            >
+              {confidenceLabel(result.species_confidence)}
+            </span>
+            {/*
+              The figure survives, one size down and after the word. Removing it
+              outright would be hiding something an owner is entitled to see;
+              leading with it is what made "91%" read as an accuracy rate.
+            */}
+            <span className="ml-2 text-xs text-slate-400">
+              {formatPercent(result.species_confidence)} match
+            </span>
           </dd>
           {/*
             The confidence figure is a choice BETWEEN dog and cat, not a
@@ -75,8 +96,19 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
             {capitalize(result.age_estimate.category)}
           </dd>
           <dd className="text-xs text-slate-500">
-            {formatYearsRange(result.age_estimate.min_years, result.age_estimate.max_years)} ·{" "}
-            {formatPercent(result.age_estimate.confidence)} confidence
+            {formatYearsRange(result.age_estimate.min_years, result.age_estimate.max_years)}
+          </dd>
+          <dd className="mt-1">
+            <span
+              className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${confidencePill(
+                result.age_estimate.confidence,
+              )}`}
+            >
+              {confidenceLabel(result.age_estimate.confidence)}
+            </span>
+            <span className="ml-2 text-xs text-slate-400">
+              {formatPercent(result.age_estimate.confidence)} match
+            </span>
           </dd>
         </div>
       </dl>
@@ -88,9 +120,14 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
         <ul className="mt-2 space-y-3">
           {result.breed_candidates.map((candidate) => (
             <li key={candidate.breed}>
-              <div className="mb-1 flex items-baseline justify-between text-sm">
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
                 <span className="font-medium text-slate-700">{candidate.breed}</span>
-                <span className="text-slate-500">{formatPercent(candidate.confidence)}</span>
+                <span className="text-xs text-slate-500">
+                  {confidenceLabel(candidate.confidence)}{" "}
+                  <span className="text-slate-400">
+                    ({formatPercent(candidate.confidence)} match)
+                  </span>
+                </span>
               </div>
               <ConfidenceBar value={candidate.confidence} />
             </li>
@@ -116,7 +153,14 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
         </div>
       )}
 
-      <p className="mt-5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      {/*
+        Said once, near the bands rather than buried at the bottom, because a
+        reader who has just seen "Very likely" three times needs to know what
+        the word is a measurement of before they act on it.
+      */}
+      <p className="mt-5 text-xs leading-relaxed text-slate-500">{CONFIDENCE_EXPLANATION}</p>
+
+      <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
         AI estimates are informational only and not a substitute for a veterinary examination.
       </p>
     </section>

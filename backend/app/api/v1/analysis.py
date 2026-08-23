@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -9,7 +10,13 @@ from app.api.deps import get_current_user, get_optional_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import AIAnalysisLog, Animal, User
-from app.schemas import AnalysisDetail, AnalysisHistoryItem, AnalysisResponse, AnalysisResult
+from app.schemas import (
+    AnalysisDetail,
+    AnalysisHistoryItem,
+    AnalysisResponse,
+    AnalysisResult,
+    AnalysisUpdate,
+)
 from app.schemas.triage import SymptomIntake, TriageAssessment
 from app.services.ai import ImageAnalysisService, get_analysis_service
 from app.services.storage import StorageService, get_storage_service
@@ -18,6 +25,25 @@ from app.services.triage import TriageEngine, get_triage_engine
 router = APIRouter()
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _owned_analysis(db: Session, analysis_id: uuid.UUID, user: User) -> AIAnalysisLog:
+    """One analysis belonging to this user, or 404.
+
+    Anonymous uploads have `user_id = NULL` and are nobody's to edit or delete,
+    so they fall through the ownership test the same way another account's do.
+    """
+    analysis = db.scalars(
+        select(AIAnalysisLog)
+        .options(selectinload(AIAnalysisLog.animal))
+        .where(AIAnalysisLog.id == analysis_id, AIAnalysisLog.user_id == user.id)
+    ).first()
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis {analysis_id} not found.",
+        )
+    return analysis
 
 
 @router.post("/upload", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED)
@@ -175,3 +201,106 @@ def get_analysis(
             detail=f"Analysis {analysis_id} not found.",
         )
     return analysis
+
+
+@router.patch("/{analysis_id}", response_model=AnalysisDetail)
+def update_analysis(
+    analysis_id: uuid.UUID,
+    payload: AnalysisUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AIAnalysisLog:
+    """Correct what the model got wrong, and move the analysis to another pet.
+
+    Corrections never touch `result`. The model's output is kept exactly as it
+    was produced, because a record of a prediction that has been edited to be
+    right is not a record of anything; the owner's version is stored beside it
+    and is what the interface shows.
+    """
+    analysis = _owned_analysis(db, analysis_id, current_user)
+    fields = payload.model_fields_set
+
+    if "animal_id" in fields:
+        # Omitted means "leave the link alone"; an explicit null means unlink.
+        # Only `model_fields_set` can tell those apart, so the check is on the
+        # set rather than on the value being None.
+        if payload.animal_id is None:
+            analysis.animal_id = None
+        else:
+            animal = db.get(Animal, payload.animal_id)
+            # Someone else's pet is a 404, matching the upload route: pet ids
+            # are not something an unrelated account should be able to confirm.
+            if animal is None or animal.owner_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Pet {payload.animal_id} not found.",
+                )
+            analysis.animal_id = animal.id
+
+    if "correction" in fields:
+        if payload.correction is None:
+            # The whole correction withdrawn: back to the model's own answer.
+            analysis.correction = None
+            analysis.corrected_at = None
+        else:
+            merged = dict(analysis.correction or {})
+            # Field-by-field, so fixing the breed later does not silently drop
+            # a species correction made last week. A field sent as null is a
+            # deliberate "use the model's value again" and is removed.
+            for field in ("species", "breed", "age_category", "note"):
+                if field not in payload.correction.model_fields_set:
+                    continue
+                value = getattr(payload.correction, field)
+                if value is None:
+                    merged.pop(field, None)
+                elif field == "age_category":
+                    merged[field] = value.value
+                else:
+                    cleaned = value.strip()
+                    if cleaned:
+                        merged[field] = cleaned
+                    else:
+                        merged.pop(field, None)
+            # A correction holding only a note corrects nothing; an empty one
+            # is stored as no correction at all rather than as an empty object.
+            substantive = {k: v for k, v in merged.items() if k != "note"}
+            if substantive:
+                analysis.correction = merged
+                analysis.corrected_at = datetime.now(timezone.utc)
+            else:
+                analysis.correction = None
+                analysis.corrected_at = None
+
+    db.commit()
+    db.refresh(analysis)
+    return analysis
+
+
+@router.delete("/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_analysis(
+    analysis_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    storage: StorageService = Depends(get_storage_service),
+) -> None:
+    """Delete an analysis and the photo it was run on.
+
+    The image goes too. "Delete my result" that leaves the photograph on the
+    server has not deleted it, and the stored file is the part an owner would
+    most expect to be gone.
+
+    Storage failure does not stop the row being deleted: an orphaned file is a
+    housekeeping problem, while refusing the delete would leave somebody unable
+    to remove their own data because of a filesystem error they cannot see.
+    """
+    analysis = _owned_analysis(db, analysis_id, current_user)
+    image_key = analysis.image_key
+
+    db.delete(analysis)
+    db.commit()
+
+    if image_key:
+        try:
+            storage.delete_object(image_key)
+        except Exception:
+            pass

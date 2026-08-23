@@ -42,6 +42,20 @@ class AIAnalysisLog(Base):
     intake: Mapped[dict[str, Any] | None] = mapped_column(PortableJSON)
     triage: Mapped[dict[str, Any] | None] = mapped_column(PortableJSON)
     triage_level: Mapped[str | None] = mapped_column(String(10), index=True)
+    #: What the owner says the animal actually is, when the model got it wrong.
+    #:
+    #: A separate column rather than an edit to `result`, and that is the whole
+    #: design. `result` is the model's own output, kept verbatim so a past
+    #: answer stays reproducible - overwriting it to fix a breed would destroy
+    #: the record of what was actually predicted, which is the only thing that
+    #: makes the analysis auditable at all. The correction layers on top: the
+    #: interface shows the owner's version, and both remain readable.
+    #:
+    #: Shape: {"species": str|None, "breed": str|None, "age_category": str|None,
+    #: "note": str|None}. Any key may be absent or null, meaning "the model's
+    #: value stands for this field".
+    correction: Mapped[dict[str, Any] | None] = mapped_column(PortableJSON)
+    corrected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
     )

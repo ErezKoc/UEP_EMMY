@@ -48,6 +48,10 @@ def ensure_compatibility_columns() -> None:
         "intake": "ALTER TABLE ai_analysis_logs ADD COLUMN intake JSON",
         "triage": "ALTER TABLE ai_analysis_logs ADD COLUMN triage JSON",
         "triage_level": "ALTER TABLE ai_analysis_logs ADD COLUMN triage_level VARCHAR(10)",
+        # Owner corrections, added with the "let me fix what the AI got wrong"
+        # work. Existing rows have neither, which reads as "not corrected".
+        "correction": "ALTER TABLE ai_analysis_logs ADD COLUMN correction JSON",
+        "corrected_at": "ALTER TABLE ai_analysis_logs ADD COLUMN corrected_at TIMESTAMP",
     }
     post_columns = {column["name"] for column in inspector.get_columns("posts")}
     post_additions = {

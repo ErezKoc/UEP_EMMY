@@ -478,6 +478,26 @@ export interface AnalysisResponse {
   triage: TriageAssessment | null;
 }
 
+/**
+ * What the owner says the animal actually is, when the model got it wrong.
+ *
+ * Stored beside the model's output, never over it: the analysis record exists
+ * to show what was predicted, and a prediction edited to be correct records
+ * nothing. Every field is independently settable and independently clearable.
+ */
+export interface AnalysisCorrection {
+  species?: string | null;
+  breed?: string | null;
+  age_category?: AgeCategory | null;
+  note?: string | null;
+}
+
+export interface AnalysisUpdatePayload {
+  correction?: AnalysisCorrection | null;
+  /** Omit to leave the link alone; `null` to unlink. The two differ. */
+  animal_id?: string | null;
+}
+
 export interface AnalysisHistoryItem {
   id: string;
   image_url: string;
@@ -485,6 +505,13 @@ export interface AnalysisHistoryItem {
   result: AnalysisResult;
   triage: TriageAssessment | null;
   animal: Animal | null;
+  /**
+   * The owner's correction, once they have made one. On the list type as well
+   * as the detail type, so the history can mark a row as corrected without
+   * fetching each record to find out.
+   */
+  correction: AnalysisCorrection | null;
+  corrected_at: string | null;
 }
 
 export interface AnalysisDetail extends AnalysisHistoryItem {

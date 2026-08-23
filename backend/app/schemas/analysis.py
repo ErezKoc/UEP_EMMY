@@ -36,6 +36,36 @@ class AnalysisResult(BaseModel):
     characteristics: list[str]
 
 
+class AnalysisCorrection(BaseModel):
+    """The owner's word on what the animal actually is.
+
+    Every field optional and every field independently clearable: an owner who
+    only wants to fix the breed should not have to restate the species, and one
+    who corrected a field by mistake needs a way back to the model's value.
+    Sending `null` for a field clears that correction; omitting it leaves it as
+    it was.
+    """
+
+    species: str | None = Field(default=None, max_length=80)
+    breed: str | None = Field(default=None, max_length=120)
+    age_category: AgeCategory | None = None
+    #: Why, in the owner's words. Shown with the correction so a veterinarian
+    #: reading the record later can see the reasoning, not just the overwrite.
+    note: str | None = Field(default=None, max_length=500)
+
+
+class AnalysisUpdate(BaseModel):
+    """A correction, a relink, or both.
+
+    `animal_id` uses a sentinel-free convention: omitted means "leave the link
+    alone", `null` means "unlink". Pydantic's `model_fields_set` tells the two
+    apart, which a plain default cannot.
+    """
+
+    correction: AnalysisCorrection | None = None
+    animal_id: uuid.UUID | None = None
+
+
 class AnalysisResponse(BaseModel):
     analysis_id: uuid.UUID
     animal_id: uuid.UUID | None
@@ -59,6 +89,10 @@ class AnalysisHistoryItem(BaseModel):
     triage: TriageAssessment | None = None
     # The linked pet, if any (deleted pets leave analyses unlinked).
     animal: AnimalRead | None
+    # Present once an owner has corrected something. The client shows the
+    # corrected value and keeps the model's original beside it.
+    correction: AnalysisCorrection | None = None
+    corrected_at: UTCDateTime | None = None
 
     @field_validator("triage", mode="before")
     @classmethod

@@ -22,7 +22,10 @@ function buildPrefill(analysis: AnalysisResponse, pet: Animal | undefined): Post
     image_url: analysis.image_url,
     title: `AI analysis: ${capitalize(result.species)}${topBreed ? `, likely ${topBreed.breed}` : ""} — what do you think?`,
     content:
-      `${petIntro} with the UEP EMMY analyzer (${result.model_version}).\n\n` +
+      // No model version. This text becomes a public post asking people for
+      // help with a pet; a build string in the first sentence is noise to
+      // every reader of it, including the veterinarians it is aimed at.
+      `${petIntro} with the UEP EMMY analyzer.\n\n` +
       `AI findings:\n` +
       `- Species: ${capitalize(result.species)} (${formatPercent(result.species_confidence)} confidence)\n` +
       result.breed_candidates

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError, getAnalysis } from "../../api/client";
 import AnalysisCard from "../../components/AnalysisCard";
+import AnalysisControls from "../../components/AnalysisControls";
 import TriageResultCard from "../../components/TriageResultCard";
 import { ArrowLeftIcon, Badge, Button, Card, Spinner } from "../../components/ui";
 import { capitalize } from "../../lib/format";
@@ -143,6 +144,11 @@ export default function AnalysisDetailPage() {
             <div>
               <h1 className="text-2xl font-bold text-slate-800">Analysis details</h1>
               <p className="mt-1 text-sm text-slate-500">{formatTimestamp(analysis.created_at)}</p>
+              {analysis.correction && (
+                <Badge variant="primary" className="mt-2">
+                  Corrected by you
+                </Badge>
+              )}
             </div>
             <Link to={analysis.animal ? `/analyze?pet=${analysis.animal.id}` : "/analyze"}>
               <Button variant="secondary">Analyze another photo</Button>
@@ -172,21 +178,91 @@ export default function AnalysisDetailPage() {
                     ) : "Not linked to a pet"}
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase text-slate-500">Model version</dt>
-                  <dd className="mt-1 text-sm text-slate-700">{analysis.result.model_version}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase text-slate-500">Analysis ID</dt>
-                  <dd className="mt-1 break-all font-mono text-xs text-slate-500">{analysis.id}</dd>
-                </div>
+                {/*
+                  The owner's version, where the model's used to be the only
+                  version. Shown first and labelled as theirs, with what the app
+                  said kept underneath — the record of the prediction is the
+                  point of storing this at all, so it is never removed, only
+                  demoted.
+                */}
+                {analysis.correction && (
+                  <div>
+                    <dt className="text-xs font-medium uppercase text-slate-500">
+                      Your correction
+                    </dt>
+                    <dd className="mt-1 space-y-0.5 text-sm text-slate-800">
+                      {analysis.correction.species && (
+                        <p>
+                          <span className="font-medium">Species:</span>{" "}
+                          {capitalize(analysis.correction.species)}{" "}
+                          <span className="text-xs text-slate-400">
+                            (app said {capitalize(analysis.result.species)})
+                          </span>
+                        </p>
+                      )}
+                      {analysis.correction.breed && (
+                        <p>
+                          <span className="font-medium">Breed:</span> {analysis.correction.breed}{" "}
+                          {analysis.result.breed_candidates[0] && (
+                            <span className="text-xs text-slate-400">
+                              (app said {analysis.result.breed_candidates[0].breed})
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {analysis.correction.age_category && (
+                        <p>
+                          <span className="font-medium">Age:</span>{" "}
+                          {capitalize(analysis.correction.age_category)}{" "}
+                          <span className="text-xs text-slate-400">
+                            (app said {capitalize(analysis.result.age_estimate.category)})
+                          </span>
+                        </p>
+                      )}
+                      {analysis.correction.note && (
+                        <p className="mt-1 text-sm italic text-slate-600">
+                          &ldquo;{analysis.correction.note}&rdquo;
+                        </p>
+                      )}
+                    </dd>
+                  </div>
+                )}
               </dl>
+
+              {/*
+                The model version and the record id live here now. Both are real
+                and both are occasionally needed — for a support conversation,
+                or for somebody checking which build produced a result — but
+                neither is something a pet owner opened this page to read, and
+                the version string was the first line under the heading.
+              */}
+              <details className="mt-5 border-t border-slate-100 pt-4">
+                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wide text-slate-400 hover:text-slate-600">
+                  Technical details
+                </summary>
+                <dl className="mt-3 space-y-3">
+                  <div>
+                    <dt className="text-xs font-medium uppercase text-slate-500">Model version</dt>
+                    <dd className="mt-1 font-mono text-xs text-slate-500">
+                      {analysis.result.model_version}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase text-slate-500">Record ID</dt>
+                    <dd className="mt-1 break-all font-mono text-xs text-slate-500">
+                      {analysis.id}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
             </div>
           </section>
 
           {analysis.triage && <TriageResultCard triage={analysis.triage} />}
           <AnalysisCard analysis={analysisResponse} />
           {analysis.intake && <IntakeDetails intake={analysis.intake} />}
+
+          <AnalysisControls analysis={analysis} onChanged={setAnalysis} />
         </div>
       )}
     </div>
