@@ -150,6 +150,46 @@ _ADVICE: dict[TriageLevel, str] = {
     ),
 }
 
+#: The same refusal, when the reason is the animal rather than the answers.
+#:
+#: The line above blames the answers - "your answers do not match guidance" -
+#: which is simply untrue for an owner whose rabbit stopped eating two days ago.
+#: They answered perfectly well. Every species-scoped rule we hold is about dogs
+#: and cats, and no wording about their answers can tell them that.
+#:
+#: Deliberately makes no claim about the species itself. Rabbit gut stasis is
+#: described as urgent in places, and `candidates.py` records it as a question
+#: for a reviewer precisely because nobody here has sourced it; repeating it in
+#: the one message an unsupported-species owner reads would be inventing exactly
+#: the guidance this branch exists because we do not have.
+#: Carries the same three promises the general wording makes, because the
+#: safety suite pins them and it is right to: an abstention must name itself as
+#: our gap, must not read as "nothing serious", and must still send the owner to
+#: a veterinarian. Only the reason changes.
+_UNASSESSED_UNSUPPORTED_SPECIES = (
+    "The published guidance behind this checker covers dogs and cats, so none of it applies to "
+    "{species}. That is a limit of what this checker holds, not a sign that the problem is minor, "
+    "and it does not mean the problem is safe to ignore. Contact a veterinarian, ideally one who "
+    "sees this species. The signs listed below come from sources that speak for animals "
+    "generally, and they need emergency care whatever else is going on."
+)
+
+
+def _species_scoped_coverage(rules: Iterable[Rule]) -> frozenset[str]:
+    """Every species some rule in the table holds specific evidence for.
+
+    Derived from the table rather than written down beside it, so it cannot go
+    stale: adding rabbit rules tomorrow makes rabbits supported here with no
+    second edit. Rules scoped to `ALL_SPECIES` are excluded on purpose - they
+    apply to every animal already, so counting them would mark every species as
+    covered and this message would never be shown.
+    """
+    covered: set[str] = set()
+    for rule in rules:
+        if rule.applies_to_species is not None:
+            covered |= rule.applies_to_species
+    return frozenset(covered)
+
 
 class UnverifiedRulesError(RuntimeError):
     """Raised at startup when strict mode is on but citations are unchecked."""
@@ -213,6 +253,22 @@ class TriageEngine:
         # question at all, so there is no verdict to give.
         return TriageLevel.GREEN, []
 
+    def _unassessed_advice(self, intake: SymptomIntake) -> str:
+        """Name the species as the reason, when it is the reason.
+
+        Only when the owner actually told us the species AND we hold no
+        species-scoped evidence for it. An unknown species falls through to the
+        general wording: we cannot say the animal is unsupported when we were
+        never told what it is.
+        """
+        species = normalise_species(intake.species)
+        if species is None or species in _species_scoped_coverage(self.rules):
+            return _ADVICE[TriageLevel.UNASSESSED]
+        # The owner's own spelling, tidied - "my Rabbit" reads back as they
+        # wrote it rather than as a normalised token.
+        label = intake.species.strip() if intake.species else species
+        return _UNASSESSED_UNSUPPORTED_SPECIES.format(species=f"a {label.lower()}")
+
     def assess(self, intake: SymptomIntake) -> TriageAssessment:
         level, shown = self.decide(intake)
 
@@ -241,7 +297,7 @@ class TriageEngine:
                 score=0,
                 threshold=AMBER_THRESHOLD,
                 fired_rules=[],
-                advice=_ADVICE[TriageLevel.UNASSESSED],
+                advice=self._unassessed_advice(intake),
                 # Sourced independently of the problem we could not match, and
                 # true regardless of it.
                 urgent_care_signs=_general_emergency_signs(intake),

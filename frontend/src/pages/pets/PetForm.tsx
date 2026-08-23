@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { isSupportedSpecies, unsupportedSummary } from "../../lib/species";
 import type { ChangeEvent, FormEvent } from "react";
 import { ApiError } from "../../api/client";
 import { Button, CameraIcon, Input, Select, XIcon } from "../../components/ui";
@@ -128,6 +129,20 @@ export default function PetForm({ initial, submitLabel, onSubmit, onCancel }: Pe
         onChange={(event) => setSpecies(event.target.value)}
         options={SPECIES_OPTIONS}
       />
+      {/*
+        Said at the moment the species is chosen, not after the pet is saved.
+        An owner picking "Rabbit" is about to find out that two of the four
+        things on the navigation bar do nothing for them; finding that out here
+        costs one sentence, and finding it out later costs a photo upload and
+        four steps of a symptom form.
+      */}
+      {!isSupportedSpecies(species === "other" ? customSpecies : species) && (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          {unsupportedSummary(species === "other" ? customSpecies || null : species)} The profile,
+          photos, health record, community and vet directory all work normally.
+        </p>
+      )}
+
       {species === "other" && (
         <Input
           label="Which species?"

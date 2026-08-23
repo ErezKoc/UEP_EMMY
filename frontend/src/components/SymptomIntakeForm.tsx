@@ -4,6 +4,8 @@ import { Button, Card, CheckIcon, Select } from "./ui";
 import { capitalize } from "../lib/format";
 import { scrollIntoViewSafely } from "../lib/scroll";
 import { BODY_AREA_LABELS, SIGN_LABELS } from "../lib/symptomLabels";
+import { isSupportedSpecies } from "../lib/species";
+import UnsupportedSpeciesNotice from "./UnsupportedSpeciesNotice";
 import type {
   Animal,
   BodyArea,
@@ -826,6 +828,20 @@ export default function SymptomIntakeForm({
   const heading = STEP_HEADINGS[step];
   const isLastStep = step === "details";
   const urgentShortcut = step === "emergency" && reportedEmergency;
+  /*
+   * A saved pet the evidence base does not cover.
+   *
+   * The species CHIPS only offer dog and cat, so this can only be reached by
+   * picking a saved rabbit or bird from the dropdown above them — and until
+   * now that was allowed straight through to the end, where the engine
+   * abstained and the owner had answered four steps for nothing.
+   *
+   * Checked here rather than in `validate` because there is no answer that
+   * would fix it. Validation exists to tell somebody what to change; this
+   * cannot be changed, so the step stops offering a way forward instead of
+   * showing an error under a question.
+   */
+  const blockedSpecies = Boolean(selectedPet && !isSupportedSpecies(selectedPet.species));
 
   return (
     <Card>
@@ -864,7 +880,13 @@ export default function SymptomIntakeForm({
               </div>
             )}
 
-            {selectedPet ? (
+            {selectedPet && blockedSpecies ? (
+              <UnsupportedSpeciesNotice
+                species={selectedPet.species}
+                petName={selectedPet.name}
+                feature="symptom-checker"
+              />
+            ) : selectedPet ? (
               <p className="rounded-lg bg-slate-100 px-4 py-3 text-sm text-slate-600">
                 Using {selectedPet.name}&apos;s details: {capitalize(selectedPet.species)},{" "}
                 {selectedPet.age_category}.
@@ -1227,6 +1249,14 @@ export default function SymptomIntakeForm({
           <Button className="min-h-11" onClick={handleSubmit} loading={busy} disabled={busy}>
             {submitError ? "Try again" : "Get advice"}
           </Button>
+        ) : blockedSpecies ? (
+          /*
+            Nothing here. The notice on this step already offers the two things
+            that do work for this pet, and a disabled Continue beside it would
+            read as a thing to unlock rather than a scope the product has —
+            leaving the owner hunting for the answer that turns it back on.
+          */
+          <span />
         ) : (
           <Button className="min-h-11" onClick={goNext} disabled={busy}>
             Continue

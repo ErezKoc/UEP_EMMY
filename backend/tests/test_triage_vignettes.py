@@ -650,11 +650,19 @@ def test_uncovered_cases_are_declared_not_reassured():
     result = engine.assess(uncovered)
     assert result.fired_rules == []
     assert "can't assess" in result.headline.lower()
-    assert "can assess confidently" in result.advice
-    assert "not a sign that the problem is minor" in result.advice
     # The abstention must name itself as our gap, and must not be readable as
     # "nothing serious" — the sentence that carries that is the one under test.
     assert "not a sign that the problem is minor" in result.advice
+    assert "safe to ignore" in result.advice
+    assert "contact a veterinarian" in result.advice.lower()
+    # Updated when the species branch was added. This case is a RABBIT, and the
+    # advice used to open "your answers do not match guidance this checker can
+    # assess confidently" — which blames the answers. The owner answered fine;
+    # every species-scoped rule we hold is about dogs and cats, and no wording
+    # about their answers can tell them that. The assertion now pins the reason
+    # rather than the old phrasing of it.
+    assert "covers dogs and cats" in result.advice
+    assert "rabbit" in result.advice.lower()
 
 
 def test_dog_eye_result_is_24_hour_species_appropriate_guidance():

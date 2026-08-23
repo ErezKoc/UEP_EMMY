@@ -53,6 +53,18 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
           <dd className="text-xs text-slate-500">
             {formatPercent(result.species_confidence)} confidence
           </dd>
+          {/*
+            The confidence figure is a choice BETWEEN dog and cat, not a
+            judgement that the photo contains either. The model has two classes,
+            so a rabbit, a hamster or a houseplant all come back as one of them
+            with a number beside it, and the number is the most convincing part
+            of the answer. A pet profile catches this before the upload; an
+            unlinked photo has nothing to catch it with, so the card says it.
+          */}
+          <dd className="mt-2 text-xs leading-relaxed text-slate-400">
+            This model chooses between dog and cat only. It will name one of them for any photo,
+            including of another animal.
+          </dd>
         </div>
 
         <div className="rounded-xl bg-slate-50 p-4">

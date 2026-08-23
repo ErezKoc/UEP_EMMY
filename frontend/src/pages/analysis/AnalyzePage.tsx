@@ -5,6 +5,8 @@ import AnalysisCard from "../../components/AnalysisCard";
 import ImageUpload from "../../components/ImageUpload";
 import { Button, Card, HistoryIcon, Select, useToast } from "../../components/ui";
 import { capitalize, formatPercent } from "../../lib/format";
+import { isSupportedSpecies } from "../../lib/species";
+import UnsupportedSpeciesNotice from "../../components/UnsupportedSpeciesNotice";
 import type { AnalysisResponse, Animal, PostPrefill } from "../../types";
 import ProductRecommendationSection from "../../features/recommendations/components/ProductRecommendationSection";
 
@@ -66,6 +68,10 @@ export default function AnalyzePage() {
   );
 
   const linkedPet = pets.find((pet) => pet.id === (analysis?.animal_id ?? selectedPetId));
+  // The pet chosen for THIS analysis, which is not the same thing as `linkedPet`:
+  // that one resolves against a finished analysis first, and this gate has to
+  // act before there is one.
+  const selectedPet = pets.find((pet) => pet.id === selectedPetId);
 
   const handleReset = () => {
     setAnalysis(null);
@@ -131,11 +137,26 @@ export default function AnalyzePage() {
             </div>
           </Card>
 
-          <ImageUpload
-            key={uploadKey}
-            animalId={selectedPetId === NO_PET ? null : selectedPetId}
-            onAnalysisComplete={setAnalysis}
-          />
+          {/*
+            Blocked, not warned. The model is a binary cat-or-dog classifier, so
+            a rabbit photo does not fail — it returns a dog or cat breed with a
+            confidence percentage beside it. A warning above a control that then
+            produces a confident wrong answer is not a warning, it is a footnote
+            on a mistake, so the upload is not offered at all.
+          */}
+          {selectedPet && !isSupportedSpecies(selectedPet.species) ? (
+            <UnsupportedSpeciesNotice
+              species={selectedPet.species}
+              petName={selectedPet.name}
+              feature="analysis"
+            />
+          ) : (
+            <ImageUpload
+              key={uploadKey}
+              animalId={selectedPetId === NO_PET ? null : selectedPetId}
+              onAnalysisComplete={setAnalysis}
+            />
+          )}
 
           {/* Health questions live in the symptom checker: they answer a
               different question from "what breed is this?" and need no photo. */}

@@ -19,6 +19,8 @@ import {
   Spinner,
   useToast,
 } from "../../components/ui";
+import { isSupportedSpecies } from "../../lib/species";
+import UnsupportedSpeciesNotice from "../../components/UnsupportedSpeciesNotice";
 import { capitalize, formatAge, formatDate } from "../../lib/format";
 import type { Animal, AnimalPayload } from "../../types";
 import PetForm from "./PetForm";
@@ -139,6 +141,8 @@ export default function PetDetailPage() {
     );
   }
 
+  const supported = isSupportedSpecies(pet.species);
+
   return (
     <div className="mx-auto max-w-3xl">
       <Link to="/pets" className="text-sm font-medium text-primary-600 hover:text-primary-700">
@@ -224,18 +228,32 @@ export default function PetDetailPage() {
               View {pet.name}&apos;s symptom checks
             </Button>
           </Link>
-          <Link to={`/analyze?pet=${pet.id}`}>
-            <Button variant="secondary" size="sm">
-              Analyze a photo
-            </Button>
-          </Link>
-          <Link to={`/symptom-check?pet=${pet.id}`}>
-            <Button variant="secondary" size="sm">
-              Check symptoms
-            </Button>
-          </Link>
+          {/*
+            The history links above stay whatever the species — a rabbit can
+            have checks saved from before the species was set, and hiding the
+            way back to them would lose the record. These two are different:
+            they start something that cannot finish for this pet.
+          */}
+          {supported && (
+            <>
+              <Link to={`/analyze?pet=${pet.id}`}>
+                <Button variant="secondary" size="sm">
+                  Analyze a photo
+                </Button>
+              </Link>
+              <Link to={`/symptom-check?pet=${pet.id}`}>
+                <Button variant="secondary" size="sm">
+                  Check symptoms
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
       </Card>
+
+      {!supported && (
+        <UnsupportedSpeciesNotice species={pet.species} petName={pet.name} feature="both" />
+      )}
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title={`Edit ${pet.name}`}>
         <PetForm
