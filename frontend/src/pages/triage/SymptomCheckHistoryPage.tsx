@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, deleteSymptomCheck, getAnimals, getSymptomChecks } from "../../api/client";
-import TriageResultCard from "../../components/TriageResultCard";
+import TriageResultCard, { buildVetQuestionPrefill } from "../../components/TriageResultCard";
 import {
   ArrowLeftIcon,
   Badge,
@@ -55,6 +55,23 @@ function HistoryRow({ check, onDeleted }: { check: SymptomCheck; onDeleted: () =
     }
   };
 
+  const askPrefill =
+    check.triage?.level === "unassessed" && check.intake
+      ? buildVetQuestionPrefill(check.intake, check.animal ? check.animal.name : null)
+      : null;
+  const askActions = askPrefill ? (
+    <div className="flex flex-wrap gap-3">
+      <Link to="/community/new" state={{ prefill: askPrefill }}>
+        <Button size="sm">Ask a vet in the community</Button>
+      </Link>
+      <Link to="/vets">
+        <Button size="sm" variant="secondary">
+          Find a vet
+        </Button>
+      </Link>
+    </div>
+  ) : undefined;
+
   return (
     <li className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -96,6 +113,14 @@ function HistoryRow({ check, onDeleted }: { check: SymptomCheck; onDeleted: () =
                 triage={check.triage}
                 answers={check.intake ?? null}
                 petLabel={check.animal ? check.animal.name : null}
+                /*
+                  Same offer as a fresh result. A stored verdict is where an
+                  owner goes back to when the problem has not gone away, so it
+                  is if anything the more useful place to be able to hand the
+                  answers to a veterinarian — and without this the card's own
+                  "you can send them" sentence pointed at nothing.
+                */
+                actions={askActions}
               />
             </div>
           )}

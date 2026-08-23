@@ -9,8 +9,12 @@ export default function LoginPage() {
   const { user, login } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
-  // Where RequireAuth sent us from, so we can return there after signing in.
-  const from = (location.state as { from?: string } | null)?.from ?? "/dashboard";
+  // Where RequireAuth sent us from, so we can return there after signing in —
+  // and the state that route was carrying, which has to be handed back with it
+  // or a link that prefills its destination arrives empty.
+  const sentFrom = location.state as { from?: string; fromState?: unknown } | null;
+  const from = sentFrom?.from ?? "/dashboard";
+  const fromState = sentFrom?.fromState ?? null;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,7 +23,7 @@ export default function LoginPage() {
 
   // Also covers the just-logged-in re-render: the session user appears before
   // handleSubmit's navigate runs, and this redirect must honor `from` too.
-  if (user) return <Navigate to={from} replace />;
+  if (user) return <Navigate to={from} replace state={fromState} />;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -27,7 +31,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email.trim(), password);
-      navigate(from, { replace: true });
+      navigate(from, { replace: true, state: fromState });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not sign in. Is the backend running?");
       setSubmitting(false);

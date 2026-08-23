@@ -22,7 +22,18 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        // `fromState` carries whatever the link that aimed here was passing —
+        // a prefilled community post, for one — so signing in resumes what the
+        // owner was doing instead of dropping them on an empty form. Forwarded
+        // as an opaque value: this component knows nothing about what any
+        // destination puts in its state, and does not need to.
+        state={{ from: location.pathname, fromState: location.state }}
+      />
+    );
   }
   return <>{children}</>;
 }

@@ -465,9 +465,16 @@ export interface AnalysisDetail extends AnalysisHistoryItem {
  * (Member 4 → Member 5 contract): read it via useLocation().state?.prefill
  * and pre-fill the new-post form.
  */
+/**
+ * A community post opened with its body already written.
+ *
+ * `analysis_id` and `image_url` are nullable because not every prefill comes
+ * from a photo analysis: a symptom check that the triage engine could not
+ * assess produces one too, and it has answers to carry rather than an image.
+ */
 export interface PostPrefill {
-  analysis_id: string;
-  image_url: string;
+  analysis_id: string | null;
+  image_url: string | null;
   title: string;
   content: string;
 }

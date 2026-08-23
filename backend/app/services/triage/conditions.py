@@ -215,6 +215,27 @@ class All:
 
 
 @dataclass(frozen=True)
+class Not:
+    """The sub-condition must NOT hold.
+
+    Added for the home-care rules, whose sources scope their advice to an
+    animal that is otherwise well — Missouri's home care for vomiting is for an
+    "otherwise healthy adult pet", and the same page sends a very young, very
+    old or chronically ill one straight to a veterinarian. Without a negation
+    the rule could only be written as a bare "the owner reported vomiting",
+    which would hand the fragile patient the same fasting instructions.
+    """
+
+    condition: Condition
+
+    def matches(self, intake: SymptomIntake) -> bool:
+        return not self.condition.matches(intake)
+
+    def describe(self) -> str:
+        return f"it is not the case that {self.condition.describe()}"
+
+
+@dataclass(frozen=True)
 class Any_:
     """At least one sub-condition must hold."""
 

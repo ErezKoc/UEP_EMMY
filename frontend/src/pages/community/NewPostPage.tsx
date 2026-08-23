@@ -64,7 +64,7 @@ export default function NewPostPage() {
             required
           />
 
-          {attachment && (
+          {attachment?.image_url && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-start gap-3">
                 <img src={attachment.image_url} alt="AI analysis attachment" className="h-20 w-20 shrink-0 rounded-lg object-cover" />

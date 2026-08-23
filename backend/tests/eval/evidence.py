@@ -3,7 +3,9 @@
 Every URL below was fetched and read during an audit sweep, separately from
 whatever `app/services/triage/sources.py` claims. The first sweep ran on
 2026-08-16; the dermatology pages at the end of this file were read on
-2026-08-18, when the skin pathway was added. Each `Finding` records:
+2026-08-18, when the skin pathway was added; the urinary pages on
+2026-08-22; and the two feline pages on 2026-08-23, when the graded rules
+for limping and diarrhoea were found to cover dogs only. Each `Finding` records:
 
 * the quoted or closely paraphrased statement the page actually makes,
 * the species the page addresses,
@@ -30,9 +32,17 @@ DERMATOLOGY_AUDIT = date(2026, 8, 18)
 #: The urinary sweep, which read the two obstruction pages that cover dogs, and
 #: re-read Cornell's anorexia page for what it says below its own 24-hour mark.
 URINARY_AUDIT = date(2026, 8, 22)
+#: The feline sweep. Same shape of gap as the urinary one, found the same way:
+#: the graded limping and diarrhoea rules cited VCA's canine limping page and
+#: Cornell's canine diarrhoea page, so a cat reporting either sign matched no
+#: rule and was told the checker could not assess it. Both publishers have a
+#: feline page; neither was ever unavailable to us. Cornell's feline page turns
+#: out NOT to say what its canine one says, which is why the two species are
+#: read separately below rather than one being mirrored onto the other.
+FELINE_AUDIT = date(2026, 8, 23)
 #: The most recent read in this ledger. Staleness and "not in the future" checks
 #: are measured from here, so adding a later sweep does not backdate the rest.
-AUDIT_DATE = URINARY_AUDIT
+AUDIT_DATE = FELINE_AUDIT
 
 DOG = "dog"
 CAT = "cat"
@@ -593,6 +603,86 @@ CORNELL_DIARRHOEA_SHORT = Finding(
     inference="Complement of a stated threshold; used only when no other sign is reported.",
 )
 
+CORNELL_DIARRHOEA_HOME_CARE = Finding(
+    id="cornell.diarrhoea_home_care",
+    source_name="Cornell Riney Canine Health Center — Diarrhea",
+    url=CORNELL_DIARRHOEA_URL,
+    # The one claim on this canine-centre page that names both species, and it
+    # names them in its own words. Scoped accordingly, so the rule that gives
+    # home-care advice can reach a pet whose species we were never told.
+    species=DOG_AND_CAT,
+    statement=(
+        "\"Mild cases of diarrhea in both cats and dogs can be treated at home by feeding a "
+        "bland diet such as boiled chicken or low-fat hamburger, and white rice.\" \"Another "
+        "tip is to start by withholding all food for 12-24 hours, then introduce the bland "
+        "diet.\" \"Have fresh water available at all times.\""
+    ),
+    urgency=Urgency.WATCHFUL,
+    negative_finding=(
+        "Only this sentence covers cats. Every other claim on the page - including the two-day "
+        "threshold - is canine, which is why the SOURCE stays dog-only in sources.py and only "
+        "this citation widens. Cornell publishes a separate feline diarrhoea page that says "
+        "something different, and a cat follows that one instead."
+    ),
+    accessed=FELINE_AUDIT,
+)
+
+# ---------------------------------------------------------------------------
+# Cornell Feline Health Center — Diarrhea. Read 2026-08-23. Real article page.
+#
+# Read because the canine page above was carrying the whole diarrhoea pathway
+# and is correctly scoped to dogs. It is NOT the same guidance: the canine page
+# gives a two-day threshold and home care below it, and this one asks for an
+# examination as soon as signs are noticed, with no threshold at all.
+# ---------------------------------------------------------------------------
+
+CORNELL_FELINE_DIARRHOEA_URL = (
+    "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center"
+    "/health-information/feline-health-topics/diarrhea"
+)
+
+CORNELL_FELINE_DIARRHOEA_EXAMINE = Finding(
+    id="cornell.feline_diarrhoea_examine_when_noticed",
+    source_name="Cornell Feline Health Center — Diarrhea",
+    url=CORNELL_FELINE_DIARRHOEA_URL,
+    species=CAT_ONLY,
+    statement=(
+        "\"While there are many medications and other therapies available that may effectively "
+        "relieve feline diarrhea, it is most important for a veterinarian to examine an affected "
+        "animal as soon as the clinical signs are noticed, as some over the counter medications "
+        "can be harmful to cats.\""
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    negative_finding=(
+        "The sentence sits in a paragraph about over-the-counter remedies, so it can be read as "
+        "aimed at owners about to self-medicate rather than at every loose stool. The audit "
+        "records it at PROMPT_EXAM on its plain wording and flags the reading for the reviewing "
+        "veterinarian, because it is what makes feline diarrhoea amber on day one where the "
+        "same sign in a dog is watched."
+    ),
+    accessed=FELINE_AUDIT,
+)
+
+CORNELL_FELINE_DIARRHOEA_SYSTEMIC = Finding(
+    id="cornell.feline_diarrhoea_systemic_signs",
+    source_name="Cornell Feline Health Center — Diarrhea",
+    url=CORNELL_FELINE_DIARRHOEA_URL,
+    species=CAT_ONLY,
+    statement=(
+        "\"If the diarrhea persists for longer than a day or two and the cat is also showing "
+        "systemic signs, such as poor appetite, lethargy, or vomiting, you should seek "
+        "veterinary care as soon as possible.\""
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    negative_finding=(
+        "Duration and systemic signs are joined with \"and\", not \"or\". The page does not say "
+        "that two days of loose stool alone warrants care — unlike Cornell's canine page, which "
+        "does. Missouri independently escalates diarrhoea with anorexia or extreme lethargy for "
+        "both species, and that is where the emergency reading of this combination comes from."
+    ),
+    accessed=FELINE_AUDIT,
+)
+
 # ---------------------------------------------------------------------------
 # Cornell Riney Canine Health Center — Heatstroke. Read 2026-08-16.
 # ---------------------------------------------------------------------------
@@ -719,6 +809,50 @@ VCA_LIMPING_SHORT = Finding(
     ),
     urgency=Urgency.WATCHFUL,
     inference="Complement of a stated threshold; used only when no other sign is reported.",
+)
+
+# ---------------------------------------------------------------------------
+# VCA Animal Hospitals — First Aid for Limping Cats. Read 2026-08-23.
+# The feline counterpart of the page above, and it states the same threshold in
+# the same words. Recorded separately anyway: the ledger's species scoping is
+# what stopped the canine page being used for cats, and inheriting a reading
+# across species by hand is the mistake that scoping exists to prevent.
+# ---------------------------------------------------------------------------
+
+VCA_LIMPING_CATS_OVER_24H = Finding(
+    id="vca.limping_cats_over_24h",
+    source_name="VCA Animal Hospitals — First Aid for Limping Cats",
+    url="https://vcahospitals.com/know-your-pet/first-aid-for-limping-cats",
+    species=CAT_ONLY,
+    statement="\"If lameness persists for more than 24 hours, seek veterinary care.\"",
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=FELINE_AUDIT,
+)
+
+VCA_LIMPING_CATS_NON_WEIGHT_BEARING = Finding(
+    id="vca.non_weight_bearing_cats",
+    source_name="VCA Animal Hospitals — First Aid for Limping Cats",
+    url="https://vcahospitals.com/know-your-pet/first-aid-for-limping-cats",
+    species=CAT_ONLY,
+    statement=(
+        "\"Most cats will not walk on a broken leg, torn ligament, or dislocated joint.\""
+    ),
+    urgency=Urgency.PROMPT_EXAM,
+    accessed=FELINE_AUDIT,
+)
+
+VCA_LIMPING_CATS_SHORT = Finding(
+    id="vca.limping_cats_under_24h",
+    source_name="VCA Animal Hospitals — First Aid for Limping Cats",
+    url="https://vcahospitals.com/know-your-pet/first-aid-for-limping-cats",
+    species=CAT_ONLY,
+    statement=(
+        "The page's threshold — seek care if lameness persists more than 24 hours — implies "
+        "that a limp of under a day in an otherwise well cat is watched first."
+    ),
+    urgency=Urgency.WATCHFUL,
+    inference="Complement of a stated threshold; used only when no other sign is reported.",
+    accessed=FELINE_AUDIT,
 )
 
 # ---------------------------------------------------------------------------
@@ -1190,6 +1324,9 @@ ALL_FINDINGS: tuple[Finding, ...] = (
     CORNELL_DIARRHOEA_RED_FLAGS,
     CORNELL_DIARRHOEA_TWO_DAYS,
     CORNELL_DIARRHOEA_SHORT,
+    CORNELL_DIARRHOEA_HOME_CARE,
+    CORNELL_FELINE_DIARRHOEA_EXAMINE,
+    CORNELL_FELINE_DIARRHOEA_SYSTEMIC,
     CORNELL_HEATSTROKE,
     VCA_EYE_URGENT,
     VCA_EYE_NONSPECIFIC,
@@ -1198,6 +1335,9 @@ ALL_FINDINGS: tuple[Finding, ...] = (
     VCA_LIMPING_OVER_24H,
     VCA_LIMPING_NON_WEIGHT_BEARING,
     VCA_LIMPING_SHORT,
+    VCA_LIMPING_CATS_OVER_24H,
+    VCA_LIMPING_CATS_NON_WEIGHT_BEARING,
+    VCA_LIMPING_CATS_SHORT,
     MERCK_GLAUCOMA,
     MERCK_UVEITIS,
     MERCK_CORROSIVE_EYE,

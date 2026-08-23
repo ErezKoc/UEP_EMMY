@@ -21,6 +21,7 @@ import {
 import { capitalize } from "../lib/format";
 import type {
   ConfidenceDimension,
+  PostPrefill,
   ConfidenceKind,
   ConfidenceLevel,
   ConfidenceReport,
@@ -270,13 +271,10 @@ function groupBySources(rules: FiredRule[]): Array<{
  * because it also renders for checks saved months ago, whose intake may be
  * missing fields that exist today.
  */
-function AnswerSummary({
-  answers,
-  petLabel,
-}: {
-  answers: SymptomIntake;
-  petLabel?: string | null;
-}) {
+export function buildAnswerRows(
+  answers: SymptomIntake,
+  petLabel?: string | null,
+): Array<{ term: string; value: string }> {
   const flags = answers.red_flags ?? [];
   const emergency = new Set<string>(EMERGENCY_SCREEN_FLAGS);
   const reportedEmergency = flags.filter((flag) => emergency.has(flag));
@@ -316,6 +314,45 @@ function AnswerSummary({
     "Long-term illness",
     answers.has_chronic_illness == null ? null : answers.has_chronic_illness ? "Yes" : "No",
   );
+
+  return rows;
+}
+
+/**
+ * The owner's answers, written out as a question for the community.
+ *
+ * Built from `buildAnswerRows` so the post says exactly what the card says. It
+ * is a draft, not a submission: it opens the normal post form with the fields
+ * filled in, and nothing is published until the owner presses the button
+ * themselves.
+ */
+export function buildVetQuestionPrefill(
+  answers: SymptomIntake,
+  petLabel?: string | null,
+): PostPrefill {
+  const rows = buildAnswerRows(answers, petLabel);
+  const subject = petLabel ?? "my pet";
+  return {
+    analysis_id: null,
+    image_url: null,
+    title: `Symptom check for ${subject} — the checker could not assess it`.slice(0, 255),
+    content:
+      `I ran the symptom checker and it could not place this on its urgency scale, so I am ` +
+      `asking here instead.\n\nThis is what I answered:\n` +
+      rows.map((row) => `- ${row.term}: ${row.value}`).join("\n") +
+      `\n\nThe checker said its rules do not cover this, which is a gap in the checker rather ` +
+      `than a sign the problem is minor. Has anyone seen this, and is it worth an appointment?`,
+  };
+}
+
+function AnswerSummary({
+  answers,
+  petLabel,
+}: {
+  answers: SymptomIntake;
+  petLabel?: string | null;
+}) {
+  const rows = buildAnswerRows(answers, petLabel);
 
   return (
     <>
@@ -497,6 +534,18 @@ export default function TriageResultCard({
           What to do now
         </h3>
         <p className="mt-1 text-sm text-slate-800">{triage.advice}</p>
+        {/*
+          Only on unassessed. On the other three levels the advice above already
+          names an action, and a second "here is what to do" would compete with
+          it — on red it would compete with "go now".
+        */}
+        {triage.level === "unassessed" && (
+          <p className="mt-3 border-t border-slate-200 pt-3 text-sm text-slate-800">
+            Your answers are still worth a person reading. You can send them to the veterinarians
+            on this platform as a question, or find a practice near you — the record of what you
+            answered is at the bottom of this card either way.
+          </p>
+        )}
         {actions && <div className="mt-4">{actions}</div>}
       </div>
 

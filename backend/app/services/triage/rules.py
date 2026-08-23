@@ -47,6 +47,7 @@ from app.services.triage.conditions import (
     HasRedFlag,
     IsFragilePatient,
     ItchLevelIn,
+    Not,
     NotEatingFor,
     SpeciesIs,
     TrendIs,
@@ -61,6 +62,8 @@ from app.services.triage.sources import (
     CAT_ONLY,
     CORNELL_ANOREXIA,
     CORNELL_DIARRHOEA,
+    CORNELL_FELINE_DIARRHOEA,
+    DOG_AND_CAT,
     CORNELL_GDV,
     CORNELL_LUTD,
     DOG_ONLY,
@@ -86,6 +89,7 @@ from app.services.triage.sources import (
     VCA_ANOREXIA_DOGS,
     VCA_EYE_ISSUES,
     VCA_LIMPING,
+    VCA_LIMPING_CATS,
     VCA_THIRST,
 )
 
@@ -1513,6 +1517,255 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
             " otherwise healthy animals, resolving in 6-12 weeks, so nothing here makes contagion"
             " time-critical. Is this the right level? A hand-washing instruction was removed for"
             " lack of a source — would you sign one off?"
+        ),
+    ),
+    # ------------------------------------------------------------------ cats
+    #
+    # Added 2026-08-23. Everything below closes the same gap: the graded rules
+    # for limping and loose stool rested on VCA's canine limping page and
+    # Cornell's CANINE diarrhoea page, whose species scope - correctly - kept
+    # them off cats. The effect was that a limping cat and a cat with diarrhoea
+    # were told "We can't assess this safely" while the identical dog got an
+    # amber result, which reads to the owner as a judgement about their animal
+    # and was in fact a judgement about which pages we had opened.
+    Rule(
+        id="cat_not_weight_bearing",
+        condition=All(
+            (
+                CannotBearWeight(),
+                DurationIn((Duration.DAYS_2_7, Duration.WEEKS_1_4, Duration.OVER_MONTH)),
+            )
+        ),
+        message="Refusing to put weight on a limb for more than a day needs veterinary attention.",
+        weight=3,
+        urgency_evidence=UrgencyEvidence.STATED,
+        citations=(
+            _cite(
+                VCA_LIMPING_CATS,
+                "states that if lameness persists for more than 24 hours, seek veterinary care, and"
+                " that most cats will not walk on a broken leg, torn ligament, or dislocated joint",
+            ),
+        ),
+        applies_to_species=CAT_ONLY,
+        reviewer_note=(
+            "The feline counterpart of `not_weight_bearing`. Same wording and same threshold,"
+            " because VCA's cat page states both in the same terms as its dog page."
+        ),
+    ),
+    Rule(
+        id="cat_lameness_over_24h",
+        condition=All(
+            (
+                ConcernIs(Concern.MOBILITY),
+                DurationIn((Duration.DAYS_2_7, Duration.WEEKS_1_4, Duration.OVER_MONTH)),
+            )
+        ),
+        message="Limping that has lasted more than a day should be checked.",
+        weight=3,
+        urgency_evidence=UrgencyEvidence.STATED,
+        citations=(
+            _cite(
+                VCA_LIMPING_CATS,
+                "states that if lameness persists for more than 24 hours, seek veterinary care",
+            ),
+        ),
+        applies_to_species=CAT_ONLY,
+        reviewer_note="The feline counterpart of `lameness_over_24h`.",
+    ),
+    Rule(
+        id="cat_diarrhoea_needs_examination",
+        condition=HasRedFlag(RedFlag.DIARRHOEA),
+        message=(
+            "Cornell's feline guidance is that a cat with diarrhoea should be examined by a "
+            "veterinarian as soon as the signs are noticed."
+        ),
+        weight=3,
+        urgency_evidence=UrgencyEvidence.STATED,
+        citations=(
+            _cite(
+                CORNELL_FELINE_DIARRHOEA,
+                "states that it is most important for a veterinarian to examine an affected animal"
+                " as soon as the clinical signs are noticed, as some over-the-counter medications"
+                " can be harmful to cats",
+            ),
+        ),
+        applies_to_species=CAT_ONLY,
+        reviewer_note=(
+            "Deliberately NOT a mirror of the dog rule, which needs two days of loose stool before"
+            " it fires. Cornell's feline page makes the examination claim with no duration"
+            " attached, so this fires on the first day. Two things for you to weigh: the sentence"
+            " sits in a paragraph warning against over-the-counter remedies, so it may be aimed at"
+            " self-medication rather than at every loose stool; and it makes any feline diarrhoea"
+            " amber, where the same sign in a dog on day one is now green. Is that the right"
+            " reading, and is the asymmetry between the two species one you would keep?"
+        ),
+    ),
+    Rule(
+        id="cat_diarrhoea_with_systemic_signs",
+        condition=All(
+            (
+                HasRedFlag(RedFlag.DIARRHOEA),
+                DurationIn((Duration.DAYS_2_7, Duration.WEEKS_1_4, Duration.OVER_MONTH)),
+                Any_(
+                    (
+                        HasRedFlag(RedFlag.NOT_EATING),
+                        HasRedFlag(RedFlag.EXTREME_LETHARGY),
+                        HasRedFlag(RedFlag.VOMITING),
+                    )
+                ),
+            )
+        ),
+        message=(
+            "Diarrhoea lasting more than a day or two alongside poor appetite, lethargy or "
+            "vomiting is what Cornell's feline guidance says to seek care for as soon as possible."
+        ),
+        weight=3,
+        urgency_evidence=UrgencyEvidence.STATED,
+        citations=(
+            _cite(
+                CORNELL_FELINE_DIARRHOEA,
+                "states that if the diarrhea persists for longer than a day or two and the cat is"
+                " also showing systemic signs, such as poor appetite, lethargy, or vomiting, you"
+                " should seek veterinary care as soon as possible",
+            ),
+        ),
+        applies_to_species=CAT_ONLY,
+        reviewer_note=(
+            "Cornell's sentence joins the duration AND the systemic signs with 'and', so this rule"
+            " does too rather than splitting them. It overlaps `cat_diarrhoea_needs_examination` on"
+            " purpose: they are different sentences making different claims, and the owner sees"
+            " both reasons."
+        ),
+    ),
+    # ------------------------------------------------- vomiting and loose stool
+    #
+    # Added 2026-08-23. `prolonged_vomiting` was deleted - see the note above
+    # this tuple - because it claimed a Missouri clause the form could not see,
+    # and nothing replaced it. So plain vomiting matched NO rule at all unless
+    # it was profuse, bloody, in a fragile patient, or paired with extreme
+    # lethargy: "my dog was sick twice yesterday", one of the most ordinary
+    # things an owner arrives with, came back as "We can't assess this safely".
+    #
+    # The fix is not to reinstate an urgency claim nobody sourced. Both pages
+    # below publish HOME CARE for exactly this animal, so these rules carry a
+    # weight low enough to stay green on their own, and put the source's own
+    # instructions in front of the owner instead of a refusal.
+    Rule(
+        id="vomiting_home_care_in_healthy_adult",
+        condition=All((HasRedFlag(RedFlag.VOMITING), Not(IsFragilePatient()))),
+        message=(
+            "Missouri publishes home care for an otherwise healthy adult pet that has vomited, "
+            "with the signs that mean it should be seen instead."
+        ),
+        # One, not three. The score has to leave this green on its own - the
+        # source's whole point is that this animal can be looked after at home -
+        # while still adding to the picture if something else fires alongside it.
+        weight=1,
+        headline="You can start home care for this",
+        advice=(
+            "Missouri's guidance for an otherwise healthy adult pet is to withhold food for about "
+            "12 hours while leaving water available, then reintroduce food gradually. Contact a "
+            "veterinary practice instead if the vomiting happens many times in a day, if attempts "
+            "to vomit continue for more than 24 hours, or if the vomit contains blood or looks "
+            "like coffee grounds."
+        ),
+        care_instructions=(
+            "Do not feed your pet for 12 hours, but continue to allow access to water.",
+            "If the vomiting has stopped after about 12 hours, offer a small amount of bland food:"
+            " a prescription diet from your veterinarian, or boiled chicken and rice.",
+            "Repeat small meals every few hours if they stay down, move to moderately sized meals"
+            " the next day, and return to the usual food gradually by about the fourth day.",
+        ),
+        urgency_evidence=UrgencyEvidence.STATED,
+        citations=(
+            _cite(
+                MISSOURI_VOMITING,
+                "gives home care for an otherwise healthy adult pet that has vomited - do not feed"
+                " for 12 hours but continue to allow access to water, then offer bland food such"
+                " as boiled chicken and rice in small quantities, building back to regular food by"
+                " about day four - and lists vomiting many times in a day, attempts to vomit"
+                " continuing for more than 24 hours, and vomit containing blood or resembling"
+                " coffee grounds as warranting more immediate attention",
+            ),
+        ),
+        reviewer_note=(
+            "This rule exists to stop plain vomiting returning UNASSESSED, which is what it did"
+            " between `prolonged_vomiting` being deleted and this being added. It makes no urgency"
+            " claim of its own: the escalation triggers it names are Missouri's, and each already"
+            " has its own emergency rule, so a case meeting one goes red regardless of this. The"
+            " fragile-patient exclusion is Missouri's too - that animal is covered by"
+            " `vomiting_or_diarrhoea_in_fragile_animal`. Is 12 hours of withheld food advice you"
+            " are willing to have us give without an examination?"
+        ),
+    ),
+    Rule(
+        id="diarrhoea_home_care_in_healthy_adult",
+        condition=All(
+            (
+                HasRedFlag(RedFlag.DIARRHOEA),
+                # Written as "not one of the longer bands" rather than "today",
+                # so it also covers an owner who skipped the duration question.
+                # Gated on `today` alone, answering that question turned an
+                # unassessed result into a green one, which is the safety
+                # invariant `test_filling_in_an_optional_field_never_lowers_
+                # urgency` exists to catch: an optional answer must never calm
+                # the verdict. From day two `diarrhoea_over_two_days` takes over.
+                Not(DurationIn((Duration.DAYS_2_7, Duration.WEEKS_1_4, Duration.OVER_MONTH))),
+                # Cornell publishes a separate feline page that does NOT say
+                # this — it asks for an examination as soon as signs are noticed,
+                # with no threshold — so a cat follows its own page, not this one.
+                # The clause is here rather than in `applies_to_species` because
+                # the rule must still fire when we were never told the species:
+                # excluding it there would leave that owner with no result at all.
+                Not(SpeciesIs("cat")),
+                Not(IsFragilePatient()),
+            )
+        ),
+        message=(
+            "Cornell describes mild, short-lived diarrhoea as something that can be managed at "
+            "home, with the signs that mean it should be seen instead."
+        ),
+        weight=1,
+        headline="You can start home care for this",
+        advice=(
+            "Cornell's guidance for a mild case is to withhold food for 12 to 24 hours, then "
+            "introduce a bland diet, with fresh water available throughout. Seek veterinary care "
+            "if your dog stops eating, is lethargic, the stool is black or tarry, there is "
+            "vomiting alongside it, or it has not resolved in 48 to 72 hours."
+        ),
+        care_instructions=(
+            "Withhold all food for 12 to 24 hours, then introduce a bland diet.",
+            "Feed a bland diet such as boiled chicken or low-fat hamburger, and white rice.",
+            "Have fresh water available at all times.",
+        ),
+        urgency_evidence=UrgencyEvidence.STATED,
+        citations=(
+            # Not `_cite`: that copies the SOURCE's species scope, and this page
+            # is registered dog-only for good reason - every other claim on it
+            # is canine. This one sentence says "in both cats and dogs" in its
+            # own words, and the citation records the scope of the sentence.
+            Citation(
+                source=CORNELL_DIARRHOEA.name,
+                url=CORNELL_DIARRHOEA.url,
+                accessed=CORNELL_DIARRHOEA.accessed,
+                species=DOG_AND_CAT,
+                supports="states that most cases resolve on their own and that mild cases can be treated at"
+                " home by withholding food for 12-24 hours and then feeding a bland diet of boiled"
+                " chicken or low-fat hamburger and white rice with fresh water available at all"
+                " times, and that veterinary care should be sought if the pet stops eating, is"
+                " lethargic, the diarrhea is black or tarry, there is associated vomiting, or it"
+                " does not resolve in 48-72 hours",
+            ),
+        ),
+        reviewer_note=(
+            "Two things to check. First, the species scope: this cites a page published by"
+            " Cornell's CANINE centre, and the only sentence on it that names cats is the"
+            " bland-diet one - \"mild cases of diarrhea in both cats and dogs can be treated at"
+            " home\" - so the citation is scoped to both species and the rule then excludes cats"
+            " by hand, because Cornell's feline page asks for an examination instead. The net"
+            " effect is that the rule reaches dogs and animals whose species we were never told."
+            " Second, it stops at the first day: from day two the same page says call the vet and"
+            " `diarrhoea_over_two_days` takes over, so the two never contradict each other."
         ),
     ),
 )

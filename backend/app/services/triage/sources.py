@@ -88,14 +88,6 @@ CORNELL_LUTD = Source(
     date(2026, 8, 18),
 )
 
-CORNELL_LUTD = Source(
-    "Cornell Feline Health Center - Feline Lower Urinary Tract Disease",
-    "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center"
-    "/health-information/feline-health-topics/feline-lower-urinary-tract-disease",
-    CAT_ONLY,
-    date(2026, 8, 18),
-)
-
 CORNELL_GDV = Source(
     "Cornell Riney Canine Health Center - Gastric dilatation volvulus (GDV) or bloat",
     "https://www.vet.cornell.edu/departments-centers-and-institutes/riney-canine-health-center"
@@ -127,6 +119,21 @@ CORNELL_DIARRHOEA = Source(
     "https://www.vet.cornell.edu/departments-centers-and-institutes/riney-canine-health-center"
     "/canine-health-topics/diarrhea",
     DOG_ONLY,
+)
+
+# Read 2026-08-23, for the same gap as the limping page above: the diarrhoea
+# rule rested on Cornell's CANINE centre, so a cat with loose stool matched
+# nothing. Cornell's Feline Health Center covers it separately, and does NOT
+# say the same thing — it pairs the duration with systemic signs, and states
+# that an affected animal should be examined as soon as signs are noticed. The
+# rules below follow the feline page's wording rather than mirroring the dog
+# rule, because the two pages genuinely differ.
+CORNELL_FELINE_DIARRHOEA = Source(
+    "Cornell Feline Health Center - Diarrhea",
+    "https://www.vet.cornell.edu/departments-centers-and-institutes/cornell-feline-health-center"
+    "/health-information/feline-health-topics/diarrhea",
+    CAT_ONLY,
+    date(2026, 8, 23),
 )
 
 VCA_EYE_ISSUES = Source(
@@ -190,6 +197,18 @@ VCA_LIMPING = Source(
     "VCA Animal Hospitals - First Aid for Limping Dogs",
     "https://vcahospitals.com/know-your-pet/first-aid-for-limping-dogs",
     DOG_ONLY,
+)
+
+# Read 2026-08-23. The cat half of the page above, and the reason a limping cat
+# used to be told "we can't assess this safely" while an identically limping dog
+# got an amber result: every lameness page we held was VCA's canine one, and its
+# species scope — correctly — kept it off cats. VCA publishes the feline article
+# with the same 24-hour threshold in the same words.
+VCA_LIMPING_CATS = Source(
+    "VCA Animal Hospitals - First Aid for Limping Cats",
+    "https://vcahospitals.com/know-your-pet/first-aid-for-limping-cats",
+    CAT_ONLY,
+    date(2026, 8, 23),
 )
 
 ASPCA_POISON_CONTROL = Source(
@@ -278,12 +297,12 @@ ALL_SOURCES = (
     ACVS_URINARY_OBSTRUCTION_DOGS,
     MERCK_URETHRAL_OBSTRUCTION,
     CORNELL_LUTD,
-    CORNELL_LUTD,
     CORNELL_GDV,
     MISSOURI_VOMITING,
     VCA_THIRST,
     CORNELL_HEATSTROKE,
     CORNELL_DIARRHOEA,
+    CORNELL_FELINE_DIARRHOEA,
     VCA_EYE_ISSUES,
     MERCK_ANTERIOR_UVEITIS,
     MERCK_ACUTE_GLAUCOMA,
@@ -294,6 +313,7 @@ ALL_SOURCES = (
     MERCK_AURICULAR_HEMATOMA,
     VCA_ANOREXIA_DOGS,
     VCA_LIMPING,
+    VCA_LIMPING_CATS,
     MERCK_STINGS,
     MERCK_TRAUMA,
     MERCK_DERM_PROBLEMS,

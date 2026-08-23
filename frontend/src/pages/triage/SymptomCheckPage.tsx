@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, assessSymptoms, createSymptomCheck, getAnimals } from "../../api/client";
 import SymptomIntakeForm, { clearIntakeDraft } from "../../components/SymptomIntakeForm";
-import TriageResultCard from "../../components/TriageResultCard";
+import TriageResultCard, { buildVetQuestionPrefill } from "../../components/TriageResultCard";
 import { Button, Card, HistoryIcon, StethoscopeIcon } from "../../components/ui";
 import { useSession } from "../../auth/SessionContext";
 import { capitalize } from "../../lib/format";
@@ -221,12 +221,44 @@ export default function SymptomCheckPage() {
    * card directly beneath the advice, and again at the foot of the card, so it
    * is reachable without scrolling in either direction.
    */
+  /*
+   * An unassessed result is the one case where "find a vet" is not the whole
+   * answer. The engine reached it precisely because our rules had nothing to
+   * say about the answers given, and the people best placed to say something
+   * are the verified veterinarians already on this platform — so that result,
+   * and only that result, leads with a drafted question to them and keeps the
+   * directory as the second option.
+   *
+   * Nothing is posted from here. The button opens the normal new-post form
+   * with the owner's own answers written into it; publishing stays their
+   * decision, on the page that already asks for it.
+   */
+  const petLabel = selectedPet ? `${selectedPet.name} (${capitalize(selectedPet.species)})` : null;
+  const askPrefill =
+    assessment?.level === "unassessed" && pending?.answers
+      ? buildVetQuestionPrefill(pending.answers, petLabel)
+      : null;
+
   const findAVet = (
     <div className="flex flex-wrap gap-3">
+      {askPrefill && (
+        <Link
+          to="/community/new"
+          state={{ prefill: askPrefill }}
+          className="w-full sm:w-auto"
+        >
+          <Button size="lg" variant="primary" className="min-h-11 w-full sm:w-auto">
+            <StethoscopeIcon className="h-5 w-5" />
+            Ask a vet in the community
+          </Button>
+        </Link>
+      )}
       <Link to="/vets" className="w-full sm:w-auto">
         <Button
           size="lg"
-          variant={assessment?.level === "red" ? "danger" : "primary"}
+          variant={
+            assessment?.level === "red" ? "danger" : askPrefill ? "secondary" : "primary"
+          }
           className="min-h-11 w-full sm:w-auto"
         >
           <StethoscopeIcon className="h-5 w-5" />
