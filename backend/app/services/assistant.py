@@ -225,7 +225,7 @@ class AssistantService:
                 if len(extracted) > 2 and extracted not in ["a", "the", "me", "my pet", "calendar", "event", "reminder"]:
                     title = extracted.capitalize()
 
-            formatted_date = datetime.date.fromisoformat(date_val).strftime("%b %d, %Y")
+            formatted_date = datetime.date.fromisoformat(date_val).strftime("%d %b %Y")
             return {
                 "action_type": AssistantActionType.CREATE_REMINDER.value,
                 "summary": f"Create calendar event '{title}' for {formatted_date} at {time_val}",
@@ -498,7 +498,7 @@ class AssistantService:
                 "title": reminder.title,
                 "due_date": reminder.due_date.isoformat(),
                 "animal_name": target_animal.name,
-            }, f"Scheduled reminder '{title}' for {target_animal.name} on {d_obj.strftime('%b %d, %Y')}!"
+            }, f"Scheduled reminder '{title}' for {target_animal.name} on {d_obj.strftime('%d %b %Y')}!"
 
         # --- DELETE REMINDER ---
         if action_type == AssistantActionType.DELETE_REMINDER.value:

@@ -7,6 +7,7 @@ import {
   updateReminder,
 } from "../../api/client";
 import type { Animal, Reminder, ReminderPayload } from "../../types";
+import { formatMonthYear } from "../../lib/format";
 
 const today = new Date();
 const emptyForm = (): ReminderPayload => ({
@@ -258,7 +259,7 @@ export default function CalendarPage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} className="rounded-lg border px-3 py-2" aria-label="Previous month">←</button>
-          <h2 className="min-w-48 text-center text-lg font-bold">{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2>
+          <h2 className="min-w-48 text-center text-lg font-bold">{formatMonthYear(month)}</h2>
           <button onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} className="rounded-lg border px-3 py-2" aria-label="Next month">→</button>
           <button
             type="button"

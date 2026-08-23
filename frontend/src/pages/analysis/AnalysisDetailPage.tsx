@@ -5,18 +5,12 @@ import AnalysisCard from "../../components/AnalysisCard";
 import AnalysisControls from "../../components/AnalysisControls";
 import TriageResultCard from "../../components/TriageResultCard";
 import { ArrowLeftIcon, Badge, Button, Card, Spinner } from "../../components/ui";
-import { capitalize } from "../../lib/format";
+import { capitalize, formatDateTime } from "../../lib/format";
 import type { AnalysisDetail, AnalysisResponse, SymptomIntake } from "../../types";
 
-function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleString(undefined, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
+// Was formatting in the reader's locale while the page around it is
+// English. `formatDateTime` uses the app's one locale, like everything else.
+const formatTimestamp = formatDateTime;
 
 const FRIENDLY_VALUES: Record<string, string> = {
   h12_to_24h: "12 to 24 hours",

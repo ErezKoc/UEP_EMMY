@@ -7,6 +7,7 @@ import { MenuIcon, PawIcon } from "../ui/icons";
 import type { CurrentUser } from "../../types";
 import VoiceAssistantBubble from "../assistant/VoiceAssistantBubble";
 import NotificationBell from "../NotificationBell";
+import { formatShortDate } from "../../lib/format";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard" },
@@ -122,7 +123,7 @@ function RestrictionBanner({ user }: { user: CurrentUser }) {
           {user.account_status === "banned"
             ? "Your account has been banned."
             : until
-              ? `Your account is suspended until ${until.toLocaleDateString()}.`
+              ? `Your account is suspended until ${formatShortDate(until)}.`
               : "Your account is suspended."}
         </p>
         <p className="mt-0.5">

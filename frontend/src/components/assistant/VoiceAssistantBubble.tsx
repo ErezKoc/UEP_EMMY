@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { processAssistantCommand } from "../../api/client";
 import { useToast } from "../ui/toast";
+import { formatTime } from "../../lib/format";
 import type { AssistantAction } from "../../types";
 
 interface Message {
@@ -22,7 +23,7 @@ export default function VoiceAssistantBubble() {
       id: "welcome",
       sender: "assistant",
       text: "Hi! I'm Emmy, your voice & command assistant. Speak or type commands like 'create me a calendar event for Jan 6 at 12:30' or 'take me to my pets'.",
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      timestamp: formatTime(new Date()),
     },
   ]);
   const [inputText, setInputText] = useState("");
@@ -64,7 +65,7 @@ export default function VoiceAssistantBubble() {
     response_text: string,
     action?: AssistantAction
   ) => {
-    const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const timeStr = formatTime(new Date());
 
     if (userText) {
       setMessages((prev) => [
@@ -116,7 +117,7 @@ export default function VoiceAssistantBubble() {
           id: Math.random().toString(),
           sender: "assistant",
           text: "Sorry, I had trouble processing that request.",
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          timestamp: formatTime(new Date()),
         },
       ]);
     } finally {

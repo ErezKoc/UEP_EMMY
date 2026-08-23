@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { getReminders } from "../api/client";
 import type { Reminder } from "../types";
+import { formatShortDate } from "../lib/format";
 
 function nextOccurrence(item: Reminder): Date {
   const due = new Date(`${item.due_date}T00:00:00`);
@@ -30,7 +31,7 @@ export default function UpcomingReminders() {
       {upcoming.length > 0 ? <div className="mt-3 divide-y divide-slate-100">{upcoming.map((item) => {
         const date = nextOccurrence(item);
         const overdue = item.recurrence === "none" && date < new Date(new Date().toDateString());
-        return <div key={item.id} className="flex items-center gap-3 py-3"><span className={`h-2.5 w-2.5 rounded-full ${overdue ? "bg-rose-500" : item.reminder_type === "vaccine" ? "bg-emerald-500" : "bg-sky-500"}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.animal.name}: {item.title}</p><p className={`text-xs ${overdue ? "font-semibold text-rose-600" : "text-slate-500"}`}>{overdue ? "Overdue · " : ""}{date.toLocaleDateString()}</p></div></div>;
+        return <div key={item.id} className="flex items-center gap-3 py-3"><span className={`h-2.5 w-2.5 rounded-full ${overdue ? "bg-rose-500" : item.reminder_type === "vaccine" ? "bg-emerald-500" : "bg-sky-500"}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.animal.name}: {item.title}</p><p className={`text-xs ${overdue ? "font-semibold text-rose-600" : "text-slate-500"}`}>{overdue ? "Overdue · " : ""}{formatShortDate(date)}</p></div></div>;
       })}</div> : <p className="mt-3 text-sm text-slate-500">No reminders yet. Add vaccinations or check-ups to your calendar.</p>}
     </section>
   );

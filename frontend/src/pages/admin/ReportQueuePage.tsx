@@ -18,7 +18,7 @@ import {
   Textarea,
   useToast,
 } from "../../components/ui";
-import { formatRelativeTime } from "../../lib/format";
+import { formatRelativeTime, formatShortDate } from "../../lib/format";
 import type { ModerationAction, ReportReason, ReportStatus, UserReport } from "../../types";
 
 const FILTER_OPTIONS = [
@@ -73,7 +73,7 @@ function AccountStatusBadge({ item }: { item: UserReport }) {
     const until = item.reported_user.suspended_until;
     return (
       <Badge variant="warning">
-        Suspended{until ? ` until ${new Date(until).toLocaleDateString()}` : ""}
+        Suspended{until ? ` until ${formatShortDate(until)}` : ""}
       </Badge>
     );
   }

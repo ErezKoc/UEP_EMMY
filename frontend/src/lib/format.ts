@@ -1,3 +1,24 @@
+/**
+ * The locale every date in this app is formatted in.
+ *
+ * Not the reader's. Every formatter here used to pass `undefined`, which means
+ * "use the browser's locale" — so on a Turkish Windows machine the interface
+ * rendered "23 Ağustos 2026" inside sentences written in English, and the
+ * calendar put a Turkish month heading directly above hard-coded English
+ * weekday columns. Half-translating an interface reads as a bug in every
+ * language it touches.
+ *
+ * `en-GB` rather than `en-US` for two reasons: the interface is written in
+ * English, so the month names should be; and it is day-first, which matches
+ * both the backend's own `%d %b %Y` output and what a reader used to
+ * 23.08.2026 expects from the ordering.
+ *
+ * When this app is genuinely translated, this constant is the thing that
+ * changes — and everything below follows, because nothing formats a date
+ * without going through here.
+ */
+export const UI_LOCALE = "en-GB";
+
 export function formatPercent(confidence: number): string {
   return `${Math.round(confidence * 100)}%`;
 }
@@ -13,14 +34,42 @@ export function capitalize(value: string): string {
   return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1);
 }
 
-/** "2021-03-14" → "Mar 14, 2021" (kept in UTC so the date never shifts). */
+/** "2021-03-14" → "14 Mar 2021" (kept in UTC so the date never shifts). */
 export function formatDate(isoDate: string): string {
-  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(undefined, {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(UI_LOCALE, {
     year: "numeric",
     month: "short",
     day: "numeric",
     timeZone: "UTC",
   });
+}
+
+/** "2026-08-24T09:30:00Z" → "24 Aug 2026, 09:30". For stored timestamps. */
+export function formatDateTime(isoTimestamp: string): string {
+  return new Date(isoTimestamp).toLocaleString(UI_LOCALE, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** "24/08/2026". For places that want the compact numeric form. */
+export function formatShortDate(value: string | Date): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return date.toLocaleDateString(UI_LOCALE);
+}
+
+/** "09:30". Clock time only, still on the app's locale rather than the reader's. */
+export function formatTime(value: string | Date): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return date.toLocaleTimeString(UI_LOCALE, { hour: "2-digit", minute: "2-digit" });
+}
+
+/** "August 2026". The calendar's month heading. */
+export function formatMonthYear(date: Date): string {
+  return date.toLocaleDateString(UI_LOCALE, { month: "long", year: "numeric" });
 }
 
 /** Age from a birth date: "5 years", "1 year 3 months", "6 months", "3 weeks". */
@@ -57,5 +106,5 @@ export function formatRelativeTime(isoTimestamp: string): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
 
-  return new Date(isoTimestamp).toLocaleDateString();
+  return formatShortDate(isoTimestamp);
 }
