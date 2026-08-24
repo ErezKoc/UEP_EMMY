@@ -9,18 +9,26 @@ import VoiceAssistantBubble from "../assistant/VoiceAssistantBubble";
 import NotificationBell from "../NotificationBell";
 import { formatShortDate } from "../../lib/format";
 
-const NAV_ITEMS = [
+/*
+ * `open: true` means the route works without an account.
+ *
+ * Every entry used to be shown to everyone, which on a phone meant a menu of
+ * nine items where five of them bounced a signed-out visitor to the login
+ * screen. A navigation menu is a list of places you can go; more than half of
+ * this one was a list of places you could not.
+ *
+ * The flags mirror the route table in App.tsx — anything wrapped in
+ * `RequireAuth` is gated here.
+ */
+const NAV_ITEMS: Array<{ to: string; label: string; open?: boolean }> = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/analyze", label: "Analyze" },
-  { to: "/symptom-check", label: "Symptom checker" },
+  { to: "/symptom-check", label: "Symptom checker", open: true },
   { to: "/pets", label: "My Pets" },
   { to: "/calendar", label: "Calendar" },
-  { to: "/new-owner-guide", label: "Owner Guide" },
-  { to: "/community", label: "Community" },
-  { to: "/vets", label: "Vets" },
-  // Shown to everyone, like Calendar and My Pets above: the route itself is
-  // behind RequireAuth, so a signed-out click lands on the login page and
-  // comes back here. NAV_ITEMS has no notion of a signed-in-only entry.
+  { to: "/new-owner-guide", label: "Owner Guide", open: true },
+  { to: "/community", label: "Community", open: true },
+  { to: "/vets", label: "Vets", open: true },
   { to: "/appointments", label: "Appointments" },
 ];
 
@@ -141,6 +149,8 @@ export default function AppLayout() {
   const navigate = useNavigate();
 
   const closeMobile = () => setMobileOpen(false);
+  // Signed out, only the routes that actually work without an account.
+  const navItems = user ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.open);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -152,7 +162,7 @@ export default function AppLayout() {
           </Link>
 
           <nav className="ml-4 hidden items-center gap-1 md:flex" aria-label="Main">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <NavLink key={item.to} to={item.to} className={navLinkClasses}>
                 {item.label}
               </NavLink>
@@ -179,14 +189,23 @@ export default function AppLayout() {
             )}
           </div>
 
-          <button
-            onClick={() => setMobileOpen((open) => !open)}
-            aria-label="Toggle navigation menu"
-            aria-expanded={mobileOpen}
-            className="ml-auto rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden"
-          >
-            <MenuIcon className="h-5 w-5" />
-          </button>
+          {/*
+            The bell lived only in the desktop cluster above, so on a phone
+            there was no way to see a notification at all — the count, the
+            panel and the mark-as-read were simply absent below `md`. In-app
+            alerts that only exist on a laptop are not in-app alerts.
+          */}
+          <div className="ml-auto flex items-center gap-1 md:hidden">
+            {user && <NotificationBell />}
+            <button
+              onClick={() => setMobileOpen((open) => !open)}
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileOpen}
+              className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+            >
+              <MenuIcon className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {mobileOpen && (
@@ -194,7 +213,7 @@ export default function AppLayout() {
             aria-label="Main"
             className="flex flex-col gap-1 border-t border-slate-200 px-4 py-3 md:hidden"
           >
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <NavLink key={item.to} to={item.to} className={navLinkClasses} onClick={closeMobile}>
                 {item.label}
               </NavLink>
@@ -227,9 +246,22 @@ export default function AppLayout() {
                 </button>
               </>
             ) : (
-              <NavLink to="/login" className={navLinkClasses} onClick={closeMobile}>
-                Sign in
-              </NavLink>
+              /*
+                Was a single "Sign in" link. The desktop header has offered both
+                "Sign in" and "Get started" all along, so a phone visitor with no
+                account saw the one option that assumes they already have one —
+                and the primary action of the whole product was missing from the
+                only navigation they had.
+              */
+              <>
+                <div className="my-1 border-t border-slate-100" />
+                <Link to="/signup" onClick={closeMobile} className="px-3 py-1">
+                  <Button className="w-full">Get started</Button>
+                </Link>
+                <NavLink to="/login" className={navLinkClasses} onClick={closeMobile}>
+                  Sign in
+                </NavLink>
+              </>
             )}
           </nav>
         )}

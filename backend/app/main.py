@@ -105,6 +105,15 @@ def ensure_compatibility_columns() -> None:
             "ALTER TABLE users ADD COLUMN notify_lead_days INTEGER NOT NULL DEFAULT 1"
         ),
     }
+    comment_columns = {column["name"] for column in inspector.get_columns("comments")}
+    comment_additions = {
+        # Citations on community answers. `comment_votes` is a new TABLE and so
+        # is created by `create_all`; these are new COLUMNS on an existing one,
+        # which create_all does not touch — an existing database 500s on every
+        # /v1/posts call without them.
+        "source_url": "ALTER TABLE comments ADD COLUMN source_url VARCHAR(1024)",
+        "source_title": "ALTER TABLE comments ADD COLUMN source_title VARCHAR(200)",
+    }
     reminder_columns = {column["name"] for column in inspector.get_columns("reminders")}
     reminder_additions = {
         # Custom recurrence. An existing "monthly" row means every 1 month,
@@ -138,6 +147,11 @@ def ensure_compatibility_columns() -> None:
         statement
         for name, statement in reminder_additions.items()
         if name not in reminder_columns
+    )
+    missing.extend(
+        statement
+        for name, statement in comment_additions.items()
+        if name not in comment_columns
     )
     with engine.begin() as connection:
         for statement in missing:

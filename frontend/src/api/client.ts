@@ -292,6 +292,10 @@ export interface PostQuery {
   offset?: number;
   q?: string;
   authorRole?: UserRole | "";
+  /** `false` finds the questions nobody has replied to. */
+  answered?: boolean;
+  vetAnswered?: boolean;
+  sort?: "recent" | "active" | "discussed";
 }
 
 export async function getPosts(query: PostQuery = {}): Promise<Post[]> {
@@ -301,6 +305,11 @@ export async function getPosts(query: PostQuery = {}): Promise<Post[]> {
   });
   if (query.q?.trim()) params.set("q", query.q.trim());
   if (query.authorRole) params.set("author_role", query.authorRole);
+  // Explicitly checked against undefined: `false` is a meaningful value here
+  // and a truthiness test would silently drop the unanswered filter.
+  if (query.answered !== undefined) params.set("answered", String(query.answered));
+  if (query.vetAnswered !== undefined) params.set("vet_answered", String(query.vetAnswered));
+  if (query.sort) params.set("sort", query.sort);
   const response = await apiFetch(`${API_BASE}/posts?${params}`);
   return parseResponse<Post[]>(response);
 }
@@ -317,8 +326,21 @@ export function createPost(payload: {
   return requestJson<PostDetail>("/posts", "POST", payload);
 }
 
-export function createComment(postId: string, content: string) {
-  return requestJson<import("../types").Comment>(`/posts/${postId}/comments`, "POST", { content });
+export function createComment(
+  postId: string,
+  content: string,
+  source?: { url?: string | null; title?: string | null },
+) {
+  return requestJson<import("../types").Comment>(`/posts/${postId}/comments`, "POST", {
+    content,
+    source_url: source?.url?.trim() || null,
+    source_title: source?.title?.trim() || null,
+  });
+}
+
+/** Mark an answer helpful, or take it back. The same call does both. */
+export function toggleHelpful(commentId: string) {
+  return requestJson<import("../types").Comment>(`/posts/comments/${commentId}/helpful`, "POST");
 }
 
 export async function getVeterinarians(
@@ -517,8 +539,17 @@ export function deleteSymptomCheck(checkId: string): Promise<void> {
 }
 
 /** The signed-in user's past analyses, newest first, optionally per pet. */
-export async function getAnalyses(animalId?: string | null): Promise<AnalysisHistoryItem[]> {
-  const query = animalId ? `?animal_id=${animalId}` : "";
+export async function getAnalyses(
+  animalId?: string | null,
+  limit?: number,
+): Promise<AnalysisHistoryItem[]> {
+  // `limit` exists for callers that only need to know whether ANY exist. The
+  // default page is 50 full records, each carrying its result, intake and
+  // triage payloads — a lot of JSON to answer a yes/no question.
+  const params = new URLSearchParams();
+  if (animalId) params.set("animal_id", animalId);
+  if (limit) params.set("limit", String(limit));
+  const query = params.size > 0 ? `?${params}` : "";
   const response = await apiFetch(`${API_BASE}/analysis${query}`, { headers: authHeaders() });
   return parseResponse<AnalysisHistoryItem[]>(response);
 }

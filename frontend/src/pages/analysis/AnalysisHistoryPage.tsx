@@ -86,7 +86,10 @@ function HistoryRow({ item, backTo }: { item: AnalysisHistoryItem; backTo: strin
               now comes from the figure instead of contradicting it.
             */}
             {topBreed
-              ? `${confidenceLabel(topBreed.confidence)}: ${topBreed.breed}`
+              // Breed first. "Strong match: Beagle" led with our own bookkeeping;
+              // the reader is scanning for the breed, and the strength of the
+              // match qualifies it rather than announcing it.
+              ? `${topBreed.breed} — ${confidenceLabel(topBreed.confidence).toLowerCase()}`
               : "No breed estimate"}
             {" / "}
             {result.age_estimate.category} age

@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from app.services.triage.citations import Citation
 from app.services.triage.conditions import (
     AgeIn,
+    AgeIsKnown,
     All,
     Any_,
     BodyAreaIn,
@@ -1652,7 +1653,25 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
     # instructions in front of the owner instead of a refusal.
     Rule(
         id="vomiting_home_care_in_healthy_adult",
-        condition=All((HasRedFlag(RedFlag.VOMITING), Not(IsFragilePatient()))),
+        condition=All(
+            (
+                HasRedFlag(RedFlag.VOMITING),
+                # Missouri's home care is for an "otherwise healthy ADULT pet".
+                # `Not(IsFragilePatient())` alone only means "not known to be
+                # fragile", which an animal we know nothing about satisfies -
+                # so this asks to actually know the age before applying advice
+                # the source scopes to a known adult.
+                AgeIsKnown(),
+                Not(IsFragilePatient()),
+                # The owner told us it is getting worse. Missouri describes what
+                # to do for an uncomplicated episode, and a problem the owner
+                # says is deteriorating is not that. This withholds the source's
+                # advice outside the situation it describes; it asserts nothing
+                # new about urgency, because nothing we hold supports one - see
+                # the `worsening` entry in candidates.py.
+                Not(TrendIs(Trend.WORSENING)),
+            )
+        ),
         message=(
             "Missouri publishes home care for an otherwise healthy adult pet that has vomited, "
             "with the signs that mean it should be seen instead."
@@ -1696,6 +1715,12 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
             " fragile-patient exclusion is Missouri's too - that animal is covered by"
             " `vomiting_or_diarrhoea_in_fragile_animal`. Is 12 hours of withheld food advice you"
             " are willing to have us give without an examination?"
+            " UPDATED after user testing: an owner who selected 'getting worse' was still"
+            " told to start home care, and an animal whose age we had never been given was"
+            " treated as an adult. Both now withhold this rule. Neither withholding claims"
+            " any urgency - the case falls through to 'we cannot assess this', which sends"
+            " them to a veterinarian. Is abstaining the right answer for a worsening case,"
+            " or would you put a level on it?"
         ),
     ),
     Rule(
@@ -1711,6 +1736,11 @@ WEIGHTED_RULES: tuple[Rule, ...] = (
                 # urgency` exists to catch: an optional answer must never calm
                 # the verdict. From day two `diarrhoea_over_two_days` takes over.
                 Not(DurationIn((Duration.DAYS_2_7, Duration.WEEKS_1_4, Duration.OVER_MONTH))),
+                # Same two gaps as the vomiting rule above, for the same
+                # reasons: a known age, and not while the owner is telling us it
+                # is getting worse.
+                AgeIsKnown(),
+                Not(TrendIs(Trend.WORSENING)),
                 # Cornell publishes a separate feline page that does NOT say
                 # this — it asks for an examination as soon as signs are noticed,
                 # with no threshold — so a cat follows its own page, not this one.

@@ -45,9 +45,39 @@ function PostItem({ post, compact }: { post: Post; compact: boolean }) {
           <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-slate-600">
             {excerpt(post.content, compact)}
           </p>
-          <footer className="mt-3 flex items-center gap-1.5 text-xs font-medium text-slate-500">
-            <ChatIcon className="h-4 w-4" />
-            {post.comment_count} {post.comment_count === 1 ? "comment" : "comments"}
+          {/*
+            Every row used to look identical whether a professional had answered
+            it or nobody had. That is most of what "the community looks quiet"
+            actually was: a wall of undifferentiated questions with no way to
+            see which had gone anywhere.
+          */}
+          <footer className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs font-medium text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <ChatIcon className="h-4 w-4" />
+              {post.comment_count === 0
+                ? "No answers yet"
+                : `${post.comment_count} ${post.comment_count === 1 ? "answer" : "answers"}`}
+            </span>
+
+            {post.has_vet_answer && (
+              <span className="rounded-full bg-teal-50 px-2 py-0.5 text-teal-700 ring-1 ring-teal-200">
+                Answered by a vet
+              </span>
+            )}
+
+            {/* An invitation, not a status: an unanswered question is the one
+                place a passing reader can most usefully act. */}
+            {post.comment_count === 0 && (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">
+                Needs an answer
+              </span>
+            )}
+
+            {post.last_activity_at && post.comment_count > 0 && (
+              <span className="text-slate-400">
+                last reply {formatRelativeTime(post.last_activity_at)}
+              </span>
+            )}
           </footer>
         </div>
         {post.image_url && (
@@ -66,6 +96,8 @@ export default function CommunityFeed({ compact = false }: { compact?: boolean }
   const [searchParams, setSearchParams] = useSearchParams();
   const query = compact ? "" : searchParams.get("q") ?? "";
   const roleParam = compact ? "" : searchParams.get("role") ?? "";
+  const statusParam = compact ? "" : searchParams.get("status") ?? "";
+  const sortParam = compact ? "" : searchParams.get("sort") ?? "";
   // Only these two roles author community content, so admin is not a filter option.
   const role: "owner" | "veterinarian" | "" =
     roleParam === "owner" || roleParam === "veterinarian" ? roleParam : "";
@@ -90,6 +122,12 @@ export default function CommunityFeed({ compact = false }: { compact?: boolean }
         offset: compact ? 0 : (page - 1) * limit,
         q: query,
         authorRole: role,
+        // Undefined, not false: `answered=false` is the whole point of the
+        // "unanswered" filter, so the absent case has to be distinguishable
+        // from the deliberate false.
+        answered: statusParam === "unanswered" ? false : undefined,
+        vetAnswered: statusParam === "vet" ? true : undefined,
+        sort: (sortParam || "active") as "recent" | "active" | "discussed",
       });
       setPosts(result.slice(0, limit));
       setHasNextPage(!compact && result.length > limit);
@@ -98,25 +136,51 @@ export default function CommunityFeed({ compact = false }: { compact?: boolean }
     } finally {
       setIsLoading(false);
     }
-  }, [compact, limit, page, query, role]);
+  }, [compact, limit, page, query, role, statusParam, sortParam]);
 
   useEffect(() => {
     void loadPosts();
   }, [loadPosts]);
 
-  const updateFilters = (next: { q?: string; role?: string; page?: number }) => {
+  const updateFilters = (next: {
+    q?: string;
+    role?: string;
+    status?: string;
+    sort?: string;
+    page?: number;
+  }) => {
     const params = new URLSearchParams(searchParams);
     const nextQuery = next.q === undefined ? query : next.q.trim();
     const nextRole = next.role === undefined ? role : next.role;
+    const nextStatus = next.status === undefined ? statusParam : next.status;
+    const nextSort = next.sort === undefined ? sortParam : next.sort;
     const nextPage = next.page ?? 1;
     if (nextQuery) params.set("q", nextQuery);
     else params.delete("q");
     if (nextRole) params.set("role", nextRole);
     else params.delete("role");
+    if (nextStatus) params.set("status", nextStatus);
+    else params.delete("status");
+    if (nextSort) params.set("sort", nextSort);
+    else params.delete("sort");
     if (nextPage > 1) params.set("page", String(nextPage));
     else params.delete("page");
     setSearchParams(params);
   };
+
+  /*
+   * The filters, as chips rather than another dropdown.
+   *
+   * "Unanswered" is the one that earns its place. Somebody willing to help had
+   * no way to find the questions nobody had replied to — they scrolled a list
+   * ordered by date and gave up, which is how a board goes quiet and stays
+   * quiet. It is deliberately first.
+   */
+  const STATUS_FILTERS = [
+    { value: "", label: "All" },
+    { value: "unanswered", label: "Unanswered" },
+    { value: "vet", label: "Answered by a vet" },
+  ];
 
   const handleSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -168,6 +232,46 @@ export default function CommunityFeed({ compact = false }: { compact?: boolean }
         </div>
       )}
 
+      {!compact && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {STATUS_FILTERS.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => updateFilters({ status: option.value, page: 1 })}
+              aria-pressed={statusParam === option.value}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                statusParam === option.value
+                  ? "bg-primary-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+
+          <span className="ml-auto flex items-center gap-2">
+            <label htmlFor="community-sort" className="text-xs text-slate-500">
+              Sort
+            </label>
+            <select
+              id="community-sort"
+              value={sortParam || "active"}
+              onChange={(event) => updateFilters({ sort: event.target.value, page: 1 })}
+              className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-primary-500 focus:outline-none"
+            >
+              {/*
+                "Recently active" is the default, not "newest". A question
+                asked in July and answered this morning is live, and ordering
+                by asked-date buried every conversation the moment it started.
+              */}
+              <option value="active">Recently active</option>
+              <option value="recent">Newest question</option>
+              <option value="discussed">Most discussed</option>
+            </select>
+          </span>
+        </div>
+      )}
+
       <div className={compact ? "mt-5 space-y-3" : "mt-5 space-y-3"}>
         {isLoading && <div className="flex justify-center py-12"><Spinner /></div>}
         {!isLoading && loadError && (
@@ -179,8 +283,21 @@ export default function CommunityFeed({ compact = false }: { compact?: boolean }
           <EmptyState
             icon={<ChatIcon className="h-6 w-6" />}
             title="No discussions found"
-            description={query || role ? "Try a different search or author filter." : "Start the first community discussion."}
-            action={!compact && (query || role) ? <Button variant="secondary" onClick={() => updateFilters({ q: "", role: "", page: 1 })}>Clear filters</Button> : undefined}
+            description={
+              query || role || statusParam
+                ? "Nothing matches those filters yet."
+                : "Nobody has asked anything yet. Be the first — owners and verified vets both answer here."
+            }
+            action={
+              !compact && (query || role || statusParam) ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => updateFilters({ q: "", role: "", status: "", page: 1 })}
+                >
+                  Clear filters
+                </Button>
+              ) : undefined
+            }
           />
         )}
         {!isLoading && !loadError && posts.map((post) => (

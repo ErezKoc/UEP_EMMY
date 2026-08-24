@@ -184,6 +184,29 @@ class AgeIn:
 
 
 @dataclass(frozen=True)
+class AgeIsKnown:
+    """Do we actually know how old this animal is?
+
+    Exists because `Not(IsFragilePatient())` does not mean what it looks like.
+    `IsFragilePatient` is true when the animal is KNOWN to be very young, very
+    old or chronically ill, so its negation is "not known to be fragile" - which
+    is satisfied by an animal nobody has told us anything about. A rule scoped
+    by its source to an "otherwise healthy adult" that rests on that negation is
+    quietly treating every unknown animal as an adult, and Missouri's own page
+    says the very young and the very old need attention sooner.
+
+    So the home-care rules ask for this as well: give that advice when we know
+    it applies, not when we have not been told otherwise.
+    """
+
+    def matches(self, intake: SymptomIntake) -> bool:
+        return intake.age_category is not None and intake.age_category is not AgeCategory.UNKNOWN
+
+    def describe(self) -> str:
+        return "the animal's age is known"
+
+
+@dataclass(frozen=True)
 class IsFragilePatient:
     """Very young, very old, or already chronically ill.
 

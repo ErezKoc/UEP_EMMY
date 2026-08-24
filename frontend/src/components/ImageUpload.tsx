@@ -87,9 +87,9 @@ export default function ImageUpload({ onAnalysisComplete, animalId, intake }: Im
 
   return (
     <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
-      <h2 className="text-lg font-semibold text-slate-800">Analyze a pet photo</h2>
+      <h2 className="text-lg font-semibold text-slate-800">Analyze a dog or cat photo</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Upload a photo and our AI will estimate species, breed, and age.
+        Upload a photo of a dog or cat and our AI will estimate the breed and age.
       </p>
 
       <div

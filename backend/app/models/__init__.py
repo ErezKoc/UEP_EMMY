@@ -9,7 +9,7 @@ from app.models.moderation import (
     UserReport,
 )
 from app.models.notification import Notification, NotificationKind
-from app.models.post import Comment, Post
+from app.models.post import Comment, CommentVote, Post
 from app.models.symptom_check import SymptomCheck
 from app.models.user import AccountStatus, User, UserRole, VerificationStatus
 from app.models.verification import VetVerification
@@ -23,6 +23,7 @@ __all__ = [
     "Appointment",
     "AppointmentStatus",
     "Comment",
+    "CommentVote",
     "ModerationAction",
     "Notification",
     "NotificationKind",

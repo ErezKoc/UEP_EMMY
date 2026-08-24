@@ -17,7 +17,9 @@ const ROLE_OPTIONS: Array<{
   {
     value: "owner",
     label: "Pet owner",
-    description: "Analyze photos of your pets and ask the community.",
+    // Was "Analyze photos of your pets", two lines under a notice saying
+    // analysis is dogs and cats. Same fix as the landing page CTA.
+    description: "Keep profiles for any pet, analyze dog and cat photos, ask the community.",
     icon: PawIcon,
   },
   {
@@ -70,6 +72,19 @@ export default function SignupPage() {
   return (
     <div className="mx-auto max-w-md">
       <Card title="Create an account" description="Join UEP EMMY as a pet owner or veterinarian.">
+        {/*
+          Repeated from the landing page, and deliberately not trusted to it.
+          People arrive here from a shared link, from the header's "Get
+          started", or from a redirect after trying something that needed an
+          account - and none of those routes pass through the landing page at
+          all. This is the last screen before an account exists, so it is the
+          last place the limitation can honestly be mentioned.
+        */}
+        <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          The photo analysis and symptom checker cover <strong>dogs and cats</strong>. Pet profiles,
+          health records, reminders, the community and the vet directory work for any animal.
+        </p>
+
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <fieldset>
             <legend className="mb-1 block text-sm font-medium text-slate-700">I am a…</legend>

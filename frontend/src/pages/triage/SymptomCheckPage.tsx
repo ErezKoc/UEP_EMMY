@@ -87,6 +87,21 @@ export default function SymptomCheckPage() {
    * two minutes ago. Only when no pet is linked — a linked pet carries its own
    * species and the manual answer is not asked.
    */
+  /*
+   * Asked, not assumed.
+   *
+   * Age used to come only from a linked pet, so anybody checking symptoms
+   * without one — which includes every signed-out visitor, and this page is
+   * public — submitted an intake with no age at all. The rules then treated
+   * that animal as a healthy adult, which is how somebody's pet of unknown age
+   * was told to start home care. The engine no longer makes that assumption, so
+   * the form has to do the obvious thing and ask.
+   */
+  const [ageCategory, setAgeCategory] = useState<AgeCategory | "">(() => {
+    const restored = readPending();
+    return restored?.answers?.age_category ?? "";
+  });
+
   const [species, setSpecies] = useState(() => {
     const restored = readPending();
     if (!restored || restored.petId) return NO_SPECIES;
@@ -181,8 +196,11 @@ export default function SymptomCheckPage() {
     // A saved pet knows its own species and age; only fall back to the manual
     // answer when the owner did not pick one.
     const effectiveSpecies = selectedPet ? selectedPet.species : species || null;
-    const ageCategory: AgeCategory | null = selectedPet ? selectedPet.age_category : null;
-    const answers = { ...intake, species: effectiveSpecies, age_category: ageCategory };
+    // A saved pet's own record wins; otherwise whatever they told the form.
+    const effectiveAge: AgeCategory | null = selectedPet
+      ? selectedPet.age_category
+      : ageCategory || null;
+    const answers = { ...intake, species: effectiveSpecies, age_category: effectiveAge };
 
     try {
       // Signed-in owners get the check kept in their history; a visitor who is
@@ -299,14 +317,24 @@ export default function SymptomCheckPage() {
             onSelectPet={setSelectedPetId}
             species={species}
             onSelectSpecies={setSpecies}
+            ageCategory={ageCategory}
+            onSelectAge={setAgeCategory}
             submitError={error}
           />
 
+          {/*
+            This page is public and the analyzer is not, so for a signed-out
+            visitor this link is a trip to the login screen. Said here rather
+            than discovered there — and only said when it applies, because a
+            signed-in member does not need warning about a requirement they
+            already meet.
+          */}
           <p className="text-center text-sm text-slate-500">
             Want a breed and age estimate instead?{" "}
             <Link to="/analyze" className="font-medium text-primary-600 underline">
               Analyze a photo
             </Link>
+            {!user && <span className="text-slate-400"> (free account needed)</span>}
           </p>
         </>
       ) : (

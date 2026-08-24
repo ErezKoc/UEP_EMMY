@@ -4,7 +4,8 @@ import { createAnimal, getAnimals } from "../../api/client";
 import AnalysisCard from "../../components/AnalysisCard";
 import ImageUpload from "../../components/ImageUpload";
 import { Button, Card, HistoryIcon, Select, useToast } from "../../components/ui";
-import { capitalize, formatPercent } from "../../lib/format";
+import { capitalize } from "../../lib/format";
+import { formatMatchScore } from "../../lib/confidence";
 import { isSupportedSpecies } from "../../lib/species";
 import UnsupportedSpeciesNotice from "../../components/UnsupportedSpeciesNotice";
 import type { AnalysisResponse, Animal, PostPrefill } from "../../types";
@@ -27,11 +28,13 @@ function buildPrefill(analysis: AnalysisResponse, pet: Animal | undefined): Post
       // every reader of it, including the veterinarians it is aimed at.
       `${petIntro} with the UEP EMMY analyzer.\n\n` +
       `AI findings:\n` +
-      `- Species: ${capitalize(result.species)} (${formatPercent(result.species_confidence)} confidence)\n` +
+      // "confidence" was the word everywhere else has moved away from, and this
+      // text becomes a public post other people read and act on.
+      `- Species: ${capitalize(result.species)} (${formatMatchScore(result.species_confidence)} match)\n` +
       result.breed_candidates
-        .map((candidate) => `- Breed candidate: ${candidate.breed} (${formatPercent(candidate.confidence)})\n`)
+        .map((candidate) => `- Breed candidate: ${candidate.breed} (${formatMatchScore(candidate.confidence)} match)\n`)
         .join("") +
-      `- Age estimate: ${result.age_estimate.category} (${formatPercent(result.age_estimate.confidence)})\n\n` +
+      `- Age estimate: ${result.age_estimate.category} (${formatMatchScore(result.age_estimate.confidence)} match)\n\n` +
       `Does this look right? Any advice is welcome — especially from the veterinarians here.`,
   };
 }

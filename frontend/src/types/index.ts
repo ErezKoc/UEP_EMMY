@@ -591,6 +591,10 @@ export interface Post {
   image_url: string | null;
   author: User;
   comment_count: number;
+  /** Answered by a VERIFIED veterinarian — the list's most useful signal. */
+  has_vet_answer: boolean;
+  /** Last reply, or when it was asked. Not the same as `created_at`. */
+  last_activity_at: string | null;
   created_at: string;
 }
 
@@ -681,6 +685,13 @@ export interface Comment {
   id: string;
   content: string;
   author: User;
+  /** Where the answer came from, when the person answering said. */
+  source_url: string | null;
+  source_title: string | null;
+  /** How many distinct people marked this helpful. */
+  helpful_count: number;
+  /** Whether YOU already did — the count is public, this is personal. */
+  viewer_found_helpful: boolean;
   created_at: string;
 }
 

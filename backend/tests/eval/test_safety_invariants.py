@@ -385,6 +385,26 @@ def test_filling_in_an_optional_field_never_lowers_urgency():
 
     Species is excluded here and tested on its own below, because naming an
     unsupported species is a documented (and separately reported) exception.
+
+    ONE MORE EXCEPTION, added deliberately and narrowly: an answer may turn an
+    ABSTENTION into a verdict, including a green one.
+
+    `UNASSESSED` is not a point on this scale - `TriageLevel` says so in as many
+    words: "not a fourth point on the urgency scale; it is a refusal to place
+    the case on the scale at all". `CAUTION_ORDER` has to sort it somewhere, and
+    ranking it above green is right for reporting, but it makes every
+    abstention-resolved-by-an-answer look like a de-escalation here.
+
+    The case that forced this: Missouri's home-care advice is scoped to an
+    "otherwise healthy ADULT pet", so the rule now requires the age to be known
+    rather than treating an animal nobody has told us about as an adult. An
+    intake with no age abstains; supplying "adult" lets the rule apply. Refusing
+    that transition would mean the only way to pass this test is to go back to
+    assuming every unknown animal is a healthy adult, which is the bug this
+    exception exists because of.
+
+    Everything else is unchanged and still enforced: red, amber and green may
+    never move downwards among themselves, whatever the owner answers.
     """
     regressions = []
     optional = {
@@ -402,6 +422,10 @@ def test_filling_in_an_optional_field_never_lowers_urgency():
                 continue
             for value in values:
                 after = _level(case.intake.model_copy(update={field: value}))
+                # An abstention resolving into a verdict is not a de-escalation;
+                # see the docstring. Every other pair is still checked.
+                if base is TriageLevel.UNASSESSED:
+                    continue
                 if CAUTION_ORDER[after] < CAUTION_ORDER[base]:
                     regressions.append(
                         f"{case.id}: setting {field}={value} dropped {base.value} -> {after.value}"

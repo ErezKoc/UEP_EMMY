@@ -1,6 +1,11 @@
 import type { AnalysisResponse } from "../types";
-import { capitalize, formatPercent, formatYearsRange } from "../lib/format";
-import { CONFIDENCE_EXPLANATION, confidenceLabel, confidencePill } from "../lib/confidence";
+import { capitalize, formatYearsRange } from "../lib/format";
+import {
+  CONFIDENCE_EXPLANATION,
+  confidenceLabel,
+  confidencePill,
+  formatMatchScore,
+} from "../lib/confidence";
 
 interface AnalysisCardProps {
   analysis: AnalysisResponse | null;
@@ -71,7 +76,7 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
               leading with it is what made "91%" read as an accuracy rate.
             */}
             <span className="ml-2 text-xs text-slate-400">
-              {formatPercent(result.species_confidence)} match
+              {formatMatchScore(result.species_confidence)} match
             </span>
           </dd>
           {/*
@@ -107,7 +112,7 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
               {confidenceLabel(result.age_estimate.confidence)}
             </span>
             <span className="ml-2 text-xs text-slate-400">
-              {formatPercent(result.age_estimate.confidence)} match
+              {formatMatchScore(result.age_estimate.confidence)} match
             </span>
           </dd>
         </div>
@@ -125,7 +130,7 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
                 <span className="text-xs text-slate-500">
                   {confidenceLabel(candidate.confidence)}{" "}
                   <span className="text-slate-400">
-                    ({formatPercent(candidate.confidence)} match)
+                    ({formatMatchScore(candidate.confidence)} match)
                   </span>
                 </span>
               </div>
@@ -155,7 +160,7 @@ export default function AnalysisCard({ analysis }: AnalysisCardProps) {
 
       {/*
         Said once, near the bands rather than buried at the bottom, because a
-        reader who has just seen "Very likely" three times needs to know what
+        reader who has just seen "Strong match" three times needs to know what
         the word is a measurement of before they act on it.
       */}
       <p className="mt-5 text-xs leading-relaxed text-slate-500">{CONFIDENCE_EXPLANATION}</p>

@@ -24,13 +24,25 @@ interface BandStyle {
   pill: string;
 }
 
+/*
+ * The words describe the MATCH, not the odds of being right.
+ *
+ * These used to read "Very likely", "Likely", "Possible", "Uncertain" — the
+ * vocabulary of probability. "Likely" means "probably true", which is a claim
+ * about how often the answer turns out to be correct, and the explanation
+ * printed underneath says in so many words that nobody has measured that. The
+ * label and the disclaimer were arguing with each other, and a reader is
+ * entitled to conclude that one of them is untrue.
+ *
+ * "Strong match" makes exactly the claim the number supports: this photo looked
+ * a lot like the training data. Whether that means the breed is right is a
+ * different question, and one this app cannot answer yet.
+ */
 const BANDS: Record<ConfidenceBand, BandStyle> = {
-  "very-likely": { label: "Very likely", pill: "bg-emerald-100 text-emerald-900" },
-  likely: { label: "Likely", pill: "bg-sky-100 text-sky-900" },
-  possible: { label: "Possible", pill: "bg-amber-100 text-amber-900" },
-  // Not "low confidence": that names our internal state. This names what it
-  // means for the owner, which is that the answer may simply be wrong.
-  uncertain: { label: "Uncertain", pill: "bg-slate-200 text-slate-700" },
+  "very-likely": { label: "Strong match", pill: "bg-emerald-100 text-emerald-900" },
+  likely: { label: "Good match", pill: "bg-sky-100 text-sky-900" },
+  possible: { label: "Weak match", pill: "bg-amber-100 text-amber-900" },
+  uncertain: { label: "Very weak match", pill: "bg-slate-200 text-slate-700" },
 };
 
 /*
@@ -54,7 +66,27 @@ export function confidencePill(confidence: number): string {
   return BANDS[bandFor(confidence)].pill;
 }
 
+/**
+ * Never reaches 100%, and never rounds upward.
+ *
+ * `Math.round` turned a score of 0.9987 into "100% match" — a claim of
+ * certainty manufactured by rounding, on a page that also says the app's
+ * real-world accuracy has never been measured. Nothing this model produces
+ * justifies the word "100", so the top of the scale is "over 99%".
+ *
+ * Rounding DOWN elsewhere is the same principle in miniature: where the display
+ * has to lose precision, it loses it in the direction that claims less.
+ */
+export function formatMatchScore(confidence: number): string {
+  const percent = confidence * 100;
+  if (percent >= 99) return "over 99%";
+  if (percent < 1) return "under 1%";
+  return `${Math.floor(percent)}%`;
+}
+
 /** The one sentence that stops the band being read as an accuracy rate. */
 export const CONFIDENCE_EXPLANATION =
-  "These words describe how strongly the photo matched what the app was trained on. " +
-  "They are not a measure of how often it turns out to be right, and nobody has measured that.";
+  "These describe how closely the photo matched what the app was trained on — nothing more. " +
+  "A strong match is not a promise that the answer is right: how often these estimates turn " +
+  "out to be correct has never been measured. Treat every one of them as a starting point for " +
+  "a conversation with a vet, not as a finding.";

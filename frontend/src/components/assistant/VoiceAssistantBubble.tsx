@@ -235,7 +235,17 @@ export default function VoiceAssistantBubble() {
 
   return (
     <div
-      className={`fixed bottom-6 right-6 z-[9999] flex-col items-end ${
+      /*
+        z-40, not z-9999.
+        At 9999 this floated above everything including open dialogs, which sit
+        at z-50 — so on a phone the launcher covered the bottom-right corner of
+        every modal, which is exactly where their Save, Confirm and Delete
+        buttons are. An assistant that blocks the button you opened the dialog
+        to press is worse than no assistant.
+        Below the dialogs and above the page: the header is also z-40 but lives
+        at the opposite end of the screen, so the two never meet.
+      */
+      className={`fixed bottom-6 right-6 z-40 flex-col items-end ${
         hideOnMobile ? "hidden sm:flex" : "flex"
       }`}
       // Keeps the launcher clear of the home indicator on notched phones.

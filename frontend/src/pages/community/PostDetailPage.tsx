@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ApiError, createComment, getPost } from "../../api/client";
+import { ApiError, createComment, getPost, toggleHelpful } from "../../api/client";
 import { useSession } from "../../auth/SessionContext";
 import ReportButton from "../../components/ReportButton";
 import {
@@ -9,6 +9,8 @@ import {
   Avatar,
   Button,
   ChatIcon,
+  CheckIcon,
+  Input,
   RoleBadge,
   SendIcon,
   Spinner,
@@ -16,7 +18,9 @@ import {
   useToast,
 } from "../../components/ui";
 import { formatRelativeTime } from "../../lib/format";
-import type { PostDetail } from "../../types";
+// `Comment` is imported explicitly because the DOM has a global type of the
+// same name, and TypeScript resolves that one otherwise.
+import type { Comment, PostDetail } from "../../types";
 
 export default function PostDetailPage() {
   const { postId } = useParams();
@@ -27,6 +31,11 @@ export default function PostDetailPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // The answer currently being voted on, so its button can disable itself
+  // without freezing every other button in the thread.
+  const [voting, setVoting] = useState<string | null>(null);
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourceTitle, setSourceTitle] = useState("");
   const [commentError, setCommentError] = useState<string | null>(null);
 
   const loadPost = useCallback(async () => {
@@ -46,15 +55,48 @@ export default function PostDetailPage() {
     void loadPost();
   }, [loadPost]);
 
+  /*
+   * Optimistic, and reconciled from the server's answer.
+   *
+   * The count is the only number on this page anybody acts on, so the button
+   * reflects the press immediately and then takes whatever the server says as
+   * the truth — a failed request puts the old value back rather than leaving a
+   * vote the database never recorded.
+   */
+  const markHelpful = async (target: Comment) => {
+    if (!user || user.id === target.author.id) return;
+    setVoting(target.id);
+    try {
+      const updated = await toggleHelpful(target.id);
+      setPost((current) =>
+        current
+          ? {
+              ...current,
+              comments: current.comments.map((c) => (c.id === updated.id ? updated : c)),
+            }
+          : current,
+      );
+    } catch (err) {
+      setCommentError(err instanceof ApiError ? err.message : "Could not record that.");
+    } finally {
+      setVoting(null);
+    }
+  };
+
   const handleComment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!postId || !post || !comment.trim()) return;
     setSubmitting(true);
     setCommentError(null);
     try {
-      const created = await createComment(postId, comment.trim());
+      const created = await createComment(postId, comment.trim(), {
+        url: sourceUrl,
+        title: sourceTitle,
+      });
       setPost({ ...post, comments: [...post.comments, created], comment_count: post.comment_count + 1 });
       setComment("");
+      setSourceUrl("");
+      setSourceTitle("");
       toast("Comment posted.", "success");
     } catch (err) {
       setCommentError(err instanceof ApiError ? err.message : "Could not post the comment.");
@@ -119,11 +161,60 @@ export default function PostDetailPage() {
                     <time className="sm:ml-auto text-xs text-slate-400" dateTime={item.created_at}>{formatRelativeTime(item.created_at)}</time>
                   </header>
                   <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-slate-700">{item.content}</p>
-                  <div className="mt-2 flex justify-end">
-                    <ReportButton
-                      authorId={item.author.id}
-                      target={{ type: "comment", id: item.id, authorName: item.author.display_name }}
-                    />
+
+                  {/*
+                    The citation, presented as one. This platform already holds
+                    its own clinical advice to "name the page it came from";
+                    an answer typed here reaches an owner the same way and
+                    carried nothing until now.
+                  */}
+                  {item.source_url && (
+                    <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      <span className="font-semibold">Source: </span>
+                      <a
+                        href={item.source_url}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="break-all text-primary-600 underline hover:text-primary-700"
+                      >
+                        {item.source_title || item.source_url.replace(/^https?:\/\//, "")}
+                      </a>
+                    </p>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => void markHelpful(item)}
+                      disabled={!user || user.id === item.author.id || voting === item.id}
+                      aria-pressed={item.viewer_found_helpful}
+                      title={
+                        !user
+                          ? "Sign in to mark answers helpful"
+                          : user.id === item.author.id
+                            ? "You cannot mark your own answer helpful"
+                            : item.viewer_found_helpful
+                              ? "You marked this helpful — press again to undo"
+                              : "This answer helped me"
+                      }
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                        item.viewer_found_helpful
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      <CheckIcon className="h-3.5 w-3.5" />
+                      Helpful
+                      {item.helpful_count > 0 && (
+                        <span className="tabular-nums">· {item.helpful_count}</span>
+                      )}
+                    </button>
+
+                    <span className="ml-auto">
+                      <ReportButton
+                        authorId={item.author.id}
+                        target={{ type: "comment", id: item.id, authorName: item.author.display_name }}
+                      />
+                    </span>
                   </div>
                 </article>
               ))}
@@ -140,6 +231,31 @@ export default function PostDetailPage() {
                     rows={4}
                     maxLength={5000}
                   />
+                  {/*
+                    Offered to everyone, not just veterinarians. An owner
+                    linking the page that helped them is worth as much to the
+                    next reader, and gating the field by role would make the
+                    absence of a source look like a professional judgement
+                    rather than a choice.
+                  */}
+                  <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr]">
+                    <Input
+                      label="Source link (optional)"
+                      value={sourceUrl}
+                      onChange={(event) => setSourceUrl(event.target.value)}
+                      placeholder="https://"
+                      maxLength={1024}
+                    />
+                    <Input
+                      label="What is it called? (optional)"
+                      value={sourceTitle}
+                      onChange={(event) => setSourceTitle(event.target.value)}
+                      placeholder="VCA — First Aid for Limping Dogs"
+                      maxLength={200}
+                      hint="Shown with your answer so readers can check it."
+                    />
+                  </div>
+
                   {commentError && <p className="mt-2 text-sm text-rose-600" role="alert">{commentError}</p>}
                   <div className="mt-3 flex justify-end">
                     <Button type="submit" loading={submitting} disabled={!comment.trim()}>

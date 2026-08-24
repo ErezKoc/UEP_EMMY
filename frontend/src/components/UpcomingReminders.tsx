@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { getReminders } from "../api/client";
 import type { Reminder } from "../types";
 import { formatShortDate } from "../lib/format";
 
@@ -20,9 +19,14 @@ function nextOccurrence(item: Reminder): Date {
   return next;
 }
 
-export default function UpcomingReminders() {
-  const [items, setItems] = useState<Reminder[]>([]);
-  useEffect(() => { getReminders().then(setItems).catch(() => setItems([])); }, []);
+/*
+ * Takes its reminders rather than fetching them.
+ *
+ * This component and the getting-started checklist were each calling
+ * /v1/reminders on the same page load — the same list, twice, competing for the
+ * same six connections. The Dashboard fetches it once now and hands it to both.
+ */
+export default function UpcomingReminders({ items }: { items: Reminder[] }) {
   const upcoming = useMemo(() => [...items].sort((a, b) => +nextOccurrence(a) - +nextOccurrence(b)).slice(0, 3), [items]);
 
   return (

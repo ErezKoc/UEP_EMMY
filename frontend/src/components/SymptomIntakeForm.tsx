@@ -7,6 +7,7 @@ import { BODY_AREA_LABELS, SIGN_LABELS } from "../lib/symptomLabels";
 import { isSupportedSpecies } from "../lib/species";
 import UnsupportedSpeciesNotice from "./UnsupportedSpeciesNotice";
 import type {
+  AgeCategory,
   Animal,
   BodyArea,
   Concern,
@@ -313,6 +314,22 @@ type PawIssue = "skin" | "limb";
 
 const NO_PET = "";
 
+/*
+ * The bands the rules actually read, in an owner's words.
+ *
+ * "Not sure" is offered on purpose and means exactly that: it is submitted as
+ * unknown, and the rules that need a known age simply do not apply. Forcing a
+ * guess would put a wrong age into a record a veterinarian later reads, which
+ * is worse than an honest gap.
+ */
+const AGE_OPTIONS: Array<{ value: AgeCategory | ""; label: string }> = [
+  { value: "baby", label: "Puppy or kitten" },
+  { value: "young", label: "Young" },
+  { value: "adult", label: "Adult" },
+  { value: "senior", label: "Senior" },
+  { value: "unknown", label: "Not sure" },
+];
+
 const SPECIES_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "dog", label: "Dog" },
   { value: "cat", label: "Cat" },
@@ -557,6 +574,8 @@ interface SymptomIntakeFormProps {
   onSelectPet: (petId: string) => void;
   species: string;
   onSelectSpecies: (species: string) => void;
+  ageCategory: AgeCategory | "";
+  onSelectAge: (age: AgeCategory | "") => void;
   /** Set when a submit failed, so the answers stay put behind a retry. */
   submitError?: string | null;
 }
@@ -569,6 +588,8 @@ export default function SymptomIntakeForm({
   onSelectPet,
   species,
   onSelectSpecies,
+  ageCategory,
+  onSelectAge,
   submitError = null,
 }: SymptomIntakeFormProps) {
   const draft = useRef<Partial<IntakeDraft> | null>(readDraft()).current;
@@ -914,6 +935,28 @@ export default function SymptomIntakeForm({
                       onSelectSpecies(option.value);
                       setErrors((current) => ({ ...current, identity: undefined }));
                     }}
+                  >
+                    {option.label}
+                  </Chip>
+                ))}
+              </Question>
+            )}
+
+            {/*
+              Only when no saved pet is selected — a pet's record already holds
+              this, and asking again invites two different answers for the same
+              animal.
+            */}
+            {!selectedPet && (
+              <Question
+                label="How old are they?"
+                hint="Some guidance differs for the very young and the very old, so we ask rather than assume."
+              >
+                {AGE_OPTIONS.map((option) => (
+                  <Chip
+                    key={option.value}
+                    selected={ageCategory === option.value}
+                    onClick={() => onSelectAge(option.value)}
                   >
                     {option.label}
                   </Chip>
