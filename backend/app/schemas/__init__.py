@@ -12,7 +12,11 @@ from app.schemas.animal import AnimalCreate, AnimalRead, AnimalUpdate
 from app.schemas.appointment import (
     AppointmentCreate,
     AppointmentDecision,
+    AppointmentMessageCreate,
+    AppointmentMessageRead,
     AppointmentRead,
+    AppointmentReschedule,
+    RescheduleDecision,
 )
 from app.schemas.assistant import (
     AssistantAction,
@@ -49,7 +53,11 @@ __all__ = [
     "AnimalUpdate",
     "AppointmentCreate",
     "AppointmentDecision",
+    "AppointmentMessageCreate",
+    "AppointmentMessageRead",
     "AppointmentRead",
+    "AppointmentReschedule",
+    "RescheduleDecision",
     "AuthResponse",
     "BreedCandidate",
     "CommentCreate",

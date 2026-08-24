@@ -3,26 +3,30 @@
 Every route here is scoped to the two people on the appointment. A veterinarian
 sees requests addressed to them and nobody else's; an owner sees their own. The
 checks are per-row rather than per-role, because "is a vet" is not the question
-— "is THIS appointment's vet" is.
+- "is THIS appointment's vet" is.
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_active_user, get_current_user
 from app.db.session import get_db
 from app.models import Animal, Reminder, ReminderType, User, UserRole
-from app.models.appointment import Appointment, AppointmentStatus
+from app.models.appointment import Appointment, AppointmentMessage, AppointmentStatus
 from app.models.notification import NotificationKind
 from app.services.notifications import notify
 from app.schemas.appointment import (
     AppointmentCreate,
     AppointmentDecision,
+    AppointmentMessageCreate,
+    AppointmentMessageRead,
     AppointmentRead,
+    AppointmentReschedule,
+    RescheduleDecision,
 )
 
 router = APIRouter()
@@ -31,6 +35,7 @@ _LOADED = (
     joinedload(Appointment.owner),
     joinedload(Appointment.vet),
     joinedload(Appointment.animal),
+    selectinload(Appointment.messages),
 )
 
 
@@ -46,12 +51,46 @@ def _visible(db: Session, appointment_id: uuid.UUID, user: User) -> Appointment:
     return appointment
 
 
+def _other_party(appointment: Appointment, user: User) -> User:
+    """Whoever is on the far side of this appointment from `user`."""
+    return appointment.vet if user.id == appointment.owner_id else appointment.owner
+
+
+def _when(day: date, clock: time | None) -> str:
+    """One phrase for a date and its time, for notifications and calendar notes.
+
+    Falls back to the bare date rather than inventing a time, because rows
+    confirmed before `scheduled_time` existed genuinely have none and printing
+    "00:00" for them would be a lie with a number in it.
+    """
+    if clock is None:
+        return f"{day:%d %b %Y}"
+    return f"{day:%d %b %Y} at {clock:%H:%M}"
+
+
+def _for_viewer(appointment: Appointment, viewer: User) -> AppointmentRead:
+    """One appointment, told from the reader's side of it.
+
+    `unread_message_count` cannot come off the row on its own - it depends on
+    who is asking - so it is filled in here rather than left for each client to
+    work out from a thread it would have to fetch first.
+    """
+    data = AppointmentRead.model_validate(appointment)
+    data.message_count = len(appointment.messages)
+    data.unread_message_count = sum(
+        1
+        for message in appointment.messages
+        if message.sender_id != viewer.id and message.read_at is None
+    )
+    return data
+
+
 @router.get("", response_model=list[AppointmentRead])
 def list_appointments(
     open_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[Appointment]:
+) -> list[AppointmentRead]:
     """Whichever side of the appointment the caller is on.
 
     One route rather than /mine and /inbox: an account can legitimately be both
@@ -76,7 +115,8 @@ def list_appointments(
         (Appointment.status != AppointmentStatus.REQUESTED),
         Appointment.preferred_date,
     )
-    return list(db.scalars(statement).unique().all())
+    rows = list(db.scalars(statement).unique().all())
+    return [_for_viewer(row, current_user) for row in rows]
 
 
 @router.post("", response_model=AppointmentRead, status_code=status.HTTP_201_CREATED)
@@ -84,7 +124,7 @@ def request_appointment(
     payload: AppointmentCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_active_user),
-) -> Appointment:
+) -> AppointmentRead:
     vet = db.get(User, payload.vet_id)
     if vet is None or vet.role != UserRole.VETERINARIAN:
         raise HTTPException(status_code=404, detail="Veterinarian not found.")
@@ -118,6 +158,7 @@ def request_appointment(
         animal_id=animal.id if animal else None,
         reason=payload.reason.strip(),
         preferred_date=payload.preferred_date,
+        preferred_time=payload.preferred_time,
         preferred_time_note=(payload.preferred_time_note or "").strip() or None,
     )
     db.add(appointment)
@@ -127,6 +168,13 @@ def request_appointment(
     # an appointment that then failed to save would be worse than not being
     # told at all.
     pet = f" about {animal.name}" if animal else ""
+    asked = (
+        _when(appointment.preferred_date, appointment.preferred_time)
+        if appointment.preferred_time
+        # Said out loud rather than left blank, so the practice knows the owner
+        # is flexible instead of wondering whether a time failed to send.
+        else f"{appointment.preferred_date:%d %b %Y} (no particular time)"
+    )
     notify(
         db,
         user=vet,
@@ -134,7 +182,7 @@ def request_appointment(
         title="New appointment request",
         body=(
             f"{current_user.display_name} asked for an appointment{pet} on "
-            f"{appointment.preferred_date:%d %b %Y}. Reason: {appointment.reason}"
+            f"{asked}. Reason: {appointment.reason}"
         ),
         dedupe_key=f"appointment:{appointment.id}:requested",
         link="/appointments",
@@ -142,7 +190,7 @@ def request_appointment(
 
     db.commit()
     db.refresh(appointment)
-    return appointment
+    return _for_viewer(appointment, current_user)
 
 
 @router.post("/{appointment_id}/respond", response_model=AppointmentRead)
@@ -151,7 +199,7 @@ def respond_to_appointment(
     payload: AppointmentDecision,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_active_user),
-) -> Appointment:
+) -> AppointmentRead:
     """The practice's answer. Only the veterinarian it was sent to may give it."""
     appointment = _visible(db, appointment_id, current_user)
     if appointment.vet_id != current_user.id:
@@ -187,7 +235,7 @@ def respond_to_appointment(
         )
         db.commit()
         db.refresh(appointment)
-        return appointment
+        return _for_viewer(appointment, current_user)
 
     scheduled = payload.scheduled_date or appointment.preferred_date
     if scheduled < date.today():
@@ -197,23 +245,14 @@ def respond_to_appointment(
         )
     appointment.status = AppointmentStatus.CONFIRMED
     appointment.scheduled_date = scheduled
+    # Guaranteed present: AppointmentDecision refuses a confirmation without one.
+    appointment.scheduled_time = payload.scheduled_time
 
-    # The confirmation is what puts this on the owner's calendar — nothing
+    # The confirmation is what puts this on the owner's calendar - nothing
     # appears there while a practice has not answered, because a request is not
     # an appointment and a calendar entry says it is.
     if appointment.animal_id is not None:
-        practice = appointment.vet.clinic_name or appointment.vet.display_name
-        reminder = Reminder(
-            title=f"Vet appointment — {practice}"[:150],
-            reminder_type=ReminderType.CHECKUP,
-            due_date=scheduled,
-            notes=_reminder_note(appointment, note),
-            animal_id=appointment.animal_id,
-            owner_id=appointment.owner_id,
-        )
-        db.add(reminder)
-        db.flush()
-        appointment.reminder_id = reminder.id
+        _sync_reminder(db, appointment, note)
 
     practice = appointment.vet.clinic_name or appointment.vet.display_name
     moved = scheduled != appointment.preferred_date
@@ -223,7 +262,8 @@ def respond_to_appointment(
         kind=NotificationKind.APPOINTMENT_CONFIRMED,
         title="Appointment confirmed",
         body=(
-            f"{practice} confirmed your appointment for {scheduled:%d %b %Y}."
+            f"{practice} confirmed your appointment for "
+            f"{_when(scheduled, appointment.scheduled_time)}."
             # The changed day is the single most important thing in this
             # message, so it is said in the message rather than left for the
             # owner to notice by comparing two dates.
@@ -240,7 +280,171 @@ def respond_to_appointment(
 
     db.commit()
     db.refresh(appointment)
-    return appointment
+    return _for_viewer(appointment, current_user)
+
+
+# ------------------------------------------------------------------ moving it
+
+
+@router.post("/{appointment_id}/reschedule", response_model=AppointmentRead)
+def propose_reschedule(
+    appointment_id: uuid.UUID,
+    payload: AppointmentReschedule,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_active_user),
+) -> AppointmentRead:
+    """Ask to move a confirmed appointment. Either side may.
+
+    The agreed appointment does not move here. It keeps its date, its time and
+    its calendar entry until the other party accepts, because a proposal is not
+    an agreement and an owner whose calendar quietly shifted under them would
+    turn up on a day nobody promised.
+
+    Only from CONFIRMED. Moving something the practice has not answered yet is
+    not rescheduling - the request is still open and its date can simply be
+    answered with a different one.
+    """
+    appointment = _visible(db, appointment_id, current_user)
+    if appointment.status is not AppointmentStatus.CONFIRMED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Only a confirmed appointment can be moved. This one is "
+                f"{appointment.status.value.replace('_', ' ')}."
+            ),
+        )
+    if payload.new_date < date.today():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose a date that has not already passed.",
+        )
+    if (
+        payload.new_date == appointment.scheduled_date
+        and payload.new_time == appointment.scheduled_time
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That is the time it is already booked for.",
+        )
+
+    appointment.status = AppointmentStatus.RESCHEDULE_PROPOSED
+    appointment.proposed_date = payload.new_date
+    appointment.proposed_time = payload.new_time
+    appointment.proposed_by_id = current_user.id
+    appointment.proposed_note = (payload.note or "").strip() or None
+
+    other = _other_party(appointment, current_user)
+    notify(
+        db,
+        user=other,
+        kind=NotificationKind.APPOINTMENT_RESCHEDULE_PROPOSED,
+        title="A new time has been suggested",
+        body=(
+            f"{current_user.display_name} asked to move the appointment from "
+            f"{_when(appointment.scheduled_date, appointment.scheduled_time)} to "
+            f"{_when(payload.new_date, payload.new_time)}. It stays as it is until you answer."
+            + (f" They said: {appointment.proposed_note}" if appointment.proposed_note else "")
+        ),
+        # Keyed on the proposed slot, not just the appointment: a second
+        # proposal after a declined first one is genuinely new news, and a bare
+        # "appointment:<id>:reschedule" key would silence it forever.
+        dedupe_key=(
+            f"appointment:{appointment.id}:reschedule:{payload.new_date}T{payload.new_time}"
+        ),
+        link="/appointments",
+    )
+
+    db.commit()
+    db.refresh(appointment)
+    return _for_viewer(appointment, current_user)
+
+
+@router.post("/{appointment_id}/reschedule/respond", response_model=AppointmentRead)
+def respond_to_reschedule(
+    appointment_id: uuid.UUID,
+    payload: RescheduleDecision,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_active_user),
+) -> AppointmentRead:
+    """Accept or refuse a proposed move. Only the side that did not propose it.
+
+    Either answer ends with a CONFIRMED appointment: accepting moves it,
+    refusing leaves it exactly where it was. There is no state in which the
+    appointment stops existing because two people disagreed about a time - if
+    somebody wants it gone they cancel it, which is a different button with a
+    different consequence.
+    """
+    appointment = _visible(db, appointment_id, current_user)
+    if appointment.status is not AppointmentStatus.RESCHEDULE_PROPOSED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="There is no proposed time waiting on this appointment.",
+        )
+    if appointment.proposed_by_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You suggested this time - the other side has to answer it.",
+        )
+
+    note = (payload.note or "").strip() or None
+    proposed_date = appointment.proposed_date
+    proposed_time = appointment.proposed_time
+    other = _other_party(appointment, current_user)
+    appointment.responded_at = datetime.now(timezone.utc)
+
+    if not payload.accept:
+        appointment.status = AppointmentStatus.CONFIRMED
+        _clear_proposal(appointment)
+        notify(
+            db,
+            user=other,
+            kind=NotificationKind.APPOINTMENT_RESCHEDULE_DECLINED,
+            title="Your suggested time was turned down",
+            body=(
+                f"{current_user.display_name} could not do "
+                f"{_when(proposed_date, proposed_time)}. The appointment stays as it was, on "
+                f"{_when(appointment.scheduled_date, appointment.scheduled_time)}."
+                + (f" They said: {note}" if note else "")
+            ),
+            dedupe_key=(
+                f"appointment:{appointment.id}:reschedule-declined:"
+                f"{proposed_date}T{proposed_time}"
+            ),
+            link="/appointments",
+        )
+        db.commit()
+        db.refresh(appointment)
+        return _for_viewer(appointment, current_user)
+
+    was = _when(appointment.scheduled_date, appointment.scheduled_time)
+    appointment.status = AppointmentStatus.CONFIRMED
+    appointment.scheduled_date = proposed_date
+    appointment.scheduled_time = proposed_time
+    _clear_proposal(appointment)
+
+    # The calendar entry moves WITH the appointment rather than being deleted
+    # and made again, so anything the owner added to it themselves survives and
+    # its id stays stable for anyone holding a reference.
+    if appointment.animal_id is not None:
+        _sync_reminder(db, appointment, appointment.vet_note)
+
+    notify(
+        db,
+        user=other,
+        kind=NotificationKind.APPOINTMENT_RESCHEDULED,
+        title="Appointment moved",
+        body=(
+            f"{current_user.display_name} accepted the new time. The appointment has moved "
+            f"from {was} to {_when(proposed_date, proposed_time)}."
+            + (f" They said: {note}" if note else "")
+        ),
+        dedupe_key=f"appointment:{appointment.id}:rescheduled:{proposed_date}T{proposed_time}",
+        link="/appointments",
+    )
+
+    db.commit()
+    db.refresh(appointment)
+    return _for_viewer(appointment, current_user)
 
 
 @router.post("/{appointment_id}/cancel", response_model=AppointmentRead)
@@ -248,7 +452,7 @@ def cancel_appointment(
     appointment_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Appointment:
+) -> AppointmentRead:
     """Either side may call it off, including after a confirmation.
 
     Cancelling stays open to a suspended account, unlike requesting: leaving
@@ -271,27 +475,170 @@ def cancel_appointment(
         appointment.reminder_id = None
 
     appointment.status = AppointmentStatus.CANCELLED
+    # A proposal on a cancelled appointment is a question about a thing that no
+    # longer exists, so it goes with it.
+    _clear_proposal(appointment)
     appointment.responded_at = datetime.now(timezone.utc)
 
     # The other party, whoever that is. Telling the person who just pressed
     # Cancel that it was cancelled is noise; the one who did not press it is
     # the one who needs to know.
-    other = appointment.vet if current_user.id == appointment.owner_id else appointment.owner
-    when = appointment.scheduled_date or appointment.preferred_date
+    other = _other_party(appointment, current_user)
+    when = _when(
+        appointment.scheduled_date or appointment.preferred_date,
+        appointment.scheduled_time or appointment.preferred_time,
+    )
     notify(
         db,
         user=other,
         kind=NotificationKind.APPOINTMENT_CANCELLED,
         title="Appointment cancelled",
-        body=(
-            f"{current_user.display_name} cancelled the appointment on {when:%d %b %Y}."
-        ),
+        body=f"{current_user.display_name} cancelled the appointment on {when}.",
         dedupe_key=f"appointment:{appointment.id}:cancelled",
         link="/appointments",
     )
     db.commit()
     db.refresh(appointment)
-    return appointment
+    return _for_viewer(appointment, current_user)
+
+
+# -------------------------------------------------------------- the same page
+
+
+@router.get("/{appointment_id}/messages", response_model=list[AppointmentMessageRead])
+def list_messages(
+    appointment_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AppointmentMessage]:
+    """The thread, and reading it marks the other side's messages as read.
+
+    Marking on read rather than on a separate "mark read" call, because there is
+    exactly one way to see these messages and it is this one. A second endpoint
+    would only add a way for the badge to disagree with what the person has
+    actually looked at.
+    """
+    appointment = _visible(db, appointment_id, current_user)
+    now = datetime.now(timezone.utc)
+    for message in appointment.messages:
+        if message.sender_id != current_user.id and message.read_at is None:
+            message.read_at = now
+    db.commit()
+    return list(appointment.messages)
+
+
+@router.post(
+    "/{appointment_id}/messages",
+    response_model=AppointmentMessageRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def send_message(
+    appointment_id: uuid.UUID,
+    payload: AppointmentMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_active_user),
+) -> AppointmentMessage:
+    """Say something to the other side, about this appointment.
+
+    Open on every status, deliberately - including declined and cancelled. "Why
+    was this turned down?" and "sorry, we had to close today" are exactly the
+    messages worth having, and they can only be sent after the thing that
+    prompted them.
+    """
+    appointment = _visible(db, appointment_id, current_user)
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Write something first.",
+        )
+
+    other = _other_party(appointment, current_user)
+    # Whether they have anything unread from us ALREADY, worked out before this
+    # message joins the list.
+    already_waiting = any(
+        message.sender_id == current_user.id and message.read_at is None
+        for message in appointment.messages
+    )
+
+    message = AppointmentMessage(
+        appointment_id=appointment.id, sender_id=current_user.id, body=body
+    )
+    db.add(message)
+    db.flush()
+
+    # One alert per unread conversation, not one per line typed.
+    #
+    # Somebody writing three sentences as three messages is having a
+    # conversation, not sending three announcements, and a phone that buzzes
+    # for each is a phone that gets muted - which costs us the one alert that
+    # mattered. So we tell them when the thread goes from read to unread, and
+    # stay quiet until they have looked. The key carries the message id so the
+    # NEXT unread stretch is announced again rather than deduped away forever.
+    if not already_waiting:
+        pet = f" about {appointment.animal.name}" if appointment.animal else ""
+        notify(
+            db,
+            user=other,
+            kind=NotificationKind.APPOINTMENT_MESSAGE,
+            title=f"Message from {current_user.display_name}",
+            body=f"About the appointment{pet}: {body[:300]}",
+            dedupe_key=f"appointment:{appointment.id}:message:{message.id}",
+            link="/appointments",
+        )
+
+    db.commit()
+    db.refresh(message)
+    return message
+
+
+# ---------------------------------------------------------------- calendaring
+
+
+def _clear_proposal(appointment: Appointment) -> None:
+    appointment.proposed_date = None
+    appointment.proposed_time = None
+    appointment.proposed_by_id = None
+    appointment.proposed_note = None
+
+
+def _sync_reminder(db: Session, appointment: Appointment, vet_note: str | None) -> None:
+    """Put the confirmed appointment on the owner's calendar, or move it there.
+
+    Updates the existing entry when there is one rather than deleting and
+    recreating it. A reschedule that replaced the row would throw away anything
+    the owner had typed into it and break any reference to its id, for no gain
+    over changing three fields.
+    """
+    practice = appointment.vet.clinic_name or appointment.vet.display_name
+    # The time goes in the TITLE, because reminders are day-grained: the
+    # calendar, its month grid and both exports show a title and a date and
+    # have nowhere else to put a clock time. An entry reading "Vet appointment
+    # - Riverside" on the 12th is the same shrug the owner came here to avoid.
+    clock = f"{appointment.scheduled_time:%H:%M} " if appointment.scheduled_time else ""
+    title = f"Vet appointment {clock}- {practice}"[:150]
+    notes = _reminder_note(appointment, vet_note)
+
+    reminder = (
+        db.get(Reminder, appointment.reminder_id) if appointment.reminder_id else None
+    )
+    if reminder is None:
+        reminder = Reminder(
+            title=title,
+            reminder_type=ReminderType.CHECKUP,
+            due_date=appointment.scheduled_date,
+            notes=notes,
+            animal_id=appointment.animal_id,
+            owner_id=appointment.owner_id,
+        )
+        db.add(reminder)
+        db.flush()
+        appointment.reminder_id = reminder.id
+        return
+
+    reminder.title = title
+    reminder.due_date = appointment.scheduled_date
+    reminder.notes = notes
 
 
 def _reminder_note(appointment: Appointment, vet_note: str | None) -> str:
@@ -306,7 +653,12 @@ def _reminder_note(appointment: Appointment, vet_note: str | None) -> str:
     The separator is a dash for that reason. It also survives the calendar's
     ICS and Google Calendar exports unchanged, which a newline does not.
     """
-    parts = [f"Reason given: {appointment.reason}"]
+    parts = []
+    if appointment.scheduled_time is not None:
+        # First, ahead of the reason. This is the one fact an owner opens the
+        # entry to check on the morning of the visit.
+        parts.append(f"Arrive at {appointment.scheduled_time:%H:%M}")
+    parts.append(f"Reason given: {appointment.reason}")
     if appointment.scheduled_date != appointment.preferred_date:
         parts.append(
             f"You asked for {appointment.preferred_date:%d %b %Y}; the practice confirmed "

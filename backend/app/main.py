@@ -114,6 +114,26 @@ def ensure_compatibility_columns() -> None:
         "source_url": "ALTER TABLE comments ADD COLUMN source_url VARCHAR(1024)",
         "source_title": "ALTER TABLE comments ADD COLUMN source_title VARCHAR(200)",
     }
+    appointment_columns = {
+        column["name"] for column in inspector.get_columns("appointments")
+    }
+    appointment_additions = {
+        # Exact times, and rescheduling. `appointment_messages` is a new TABLE
+        # and so is created by `create_all`; these are new COLUMNS on an
+        # existing one, which create_all does not touch - an existing database
+        # 500s on every /v1/appointments call without them.
+        #
+        # All nullable, with no backfill. A row confirmed before this feature
+        # existed genuinely has no time on it, and inventing one - 09:00, or
+        # midnight - would put a number in front of an owner that no practice
+        # ever said. NULL reads as "no time was given", which is the truth.
+        "preferred_time": "ALTER TABLE appointments ADD COLUMN preferred_time TIME",
+        "scheduled_time": "ALTER TABLE appointments ADD COLUMN scheduled_time TIME",
+        "proposed_date": "ALTER TABLE appointments ADD COLUMN proposed_date DATE",
+        "proposed_time": "ALTER TABLE appointments ADD COLUMN proposed_time TIME",
+        "proposed_by_id": "ALTER TABLE appointments ADD COLUMN proposed_by_id CHAR(32)",
+        "proposed_note": "ALTER TABLE appointments ADD COLUMN proposed_note VARCHAR(1000)",
+    }
     reminder_columns = {column["name"] for column in inspector.get_columns("reminders")}
     reminder_additions = {
         # Custom recurrence. An existing "monthly" row means every 1 month,
@@ -152,6 +172,11 @@ def ensure_compatibility_columns() -> None:
         statement
         for name, statement in comment_additions.items()
         if name not in comment_columns
+    )
+    missing.extend(
+        statement
+        for name, statement in appointment_additions.items()
+        if name not in appointment_columns
     )
     with engine.begin() as connection:
         for statement in missing:

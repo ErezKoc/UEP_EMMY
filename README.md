@@ -228,9 +228,17 @@ not gain the demo report. No PostgreSQL handy? Set
 > `verification_status` alongside the new `vet_verifications` table (vet
 > verification); and `users` gained `account_status`, `suspended_until` and
 > `moderation_note` alongside the new `user_reports` table (community
-> reporting). There are no Alembic migrations yet. The newer thumbnail,
-> analysis ownership, post attachment, verification, and moderation columns are
-> added automatically at startup without deleting existing data.
+> reporting); `comments` gained `source_url` and `source_title` alongside the
+> new `comment_votes` table (community citations and helpful marks); and
+> `appointments` gained `preferred_time`, `scheduled_time`, `proposed_date`,
+> `proposed_time`, `proposed_by_id` and `proposed_note` alongside the new
+> `appointment_messages` table (exact appointment times, rescheduling, and
+> clinic messaging). There are no Alembic migrations yet. The newer thumbnail,
+> analysis ownership, post attachment, verification, moderation, comment-source
+> and appointment-time columns are added automatically at startup without
+> deleting existing data. The new appointment columns are all nullable with no
+> backfill: an appointment confirmed before exact times existed genuinely has
+> none, and the interface says so on the row rather than inventing one.
 > Databases that predate the auth or base pet-photo fields may still need to be
 > recreated.
 
@@ -264,6 +272,12 @@ API docs: <http://localhost:8000/docs>
 | `GET /v1/reports/me`           | Reports the caller has filed, newest first          |
 | `GET /v1/reports`              | Admin moderation queue; `?status=pending` filters   |
 | `PATCH /v1/reports/{id}`       | Admin dismisses, or suspends/bans/reinstates the reported account |
+| `GET/POST /v1/appointments`    | Both sides of the caller's appointments / send a request (optional `preferred_time`) |
+| `POST /v1/appointments/{id}/respond` | The practice confirms or declines; **`scheduled_time` is required to confirm** |
+| `POST /v1/appointments/{id}/reschedule` | Either side suggests a new day and time for a confirmed appointment |
+| `POST /v1/appointments/{id}/reschedule/respond` | The other side accepts or keeps the original |
+| `POST /v1/appointments/{id}/cancel` | Either side calls it off; removes the calendar entry |
+| `GET/POST /v1/appointments/{id}/messages` | The thread on one appointment; reading it marks the other side's messages read |
 | `GET /healthz`                 | Health check                                       |
 
 ### Frontend

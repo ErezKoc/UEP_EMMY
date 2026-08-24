@@ -67,6 +67,38 @@ export function formatTime(value: string | Date): string {
   return date.toLocaleTimeString(UI_LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * "14:30:00" -> "14:30". A bare clock time, with no date attached to it.
+ *
+ * Not `formatTime`, which takes a real instant and converts it into the
+ * reader's timezone. An appointment time is not an instant: it is the clock on
+ * the practice's wall, and 14:30 at Riverside is 14:30 for the person walking
+ * through its door whatever their phone believes. Putting it through a Date
+ * would invent a timezone conversion nobody asked for and shift somebody's
+ * appointment by an hour.
+ *
+ * Seconds are dropped because no clinic books to the second, and the seconds
+ * the backend sends are always zero.
+ */
+export function formatClock(value: string | null | undefined): string {
+  if (!value) return "";
+  const [hours, minutes] = value.split(":");
+  return minutes === undefined ? value : `${hours}:${minutes}`;
+}
+
+/**
+ * "14 Mar 2026 at 14:30", or just the date when there is no time.
+ *
+ * Falls back rather than printing a placeholder, because appointments
+ * confirmed before exact times existed genuinely have none, and "at 00:00"
+ * would be a lie with a number in it.
+ */
+export function formatWhen(isoDate: string, clock: string | null | undefined): string {
+  const day = formatDate(isoDate);
+  const at = formatClock(clock);
+  return at ? `${day} at ${at}` : day;
+}
+
 /** "August 2026". The calendar's month heading. */
 export function formatMonthYear(date: Date): string {
   return date.toLocaleDateString(UI_LOCALE, { month: "long", year: "numeric" });

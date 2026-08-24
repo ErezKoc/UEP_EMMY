@@ -7,7 +7,14 @@ import {
   markNotificationRead,
 } from "../api/client";
 import { useSession } from "../auth/SessionContext";
-import { AlertTriangleIcon, CalendarIcon, CheckCircleIcon, ClockIcon, Spinner } from "./ui";
+import {
+  AlertTriangleIcon,
+  CalendarIcon,
+  ChatIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  Spinner,
+} from "./ui";
 import { formatRelativeTime } from "../lib/format";
 import type { AppNotification, NotificationKind } from "../types";
 
@@ -20,6 +27,12 @@ const KIND_ICON: Record<NotificationKind, (props: { className?: string }) => Rea
   appointment_confirmed: CheckCircleIcon,
   appointment_declined: AlertTriangleIcon,
   appointment_cancelled: AlertTriangleIcon,
+  // A suggested time is a question waiting on the reader, so it gets the clock
+  // rather than the warning triangle - nothing has gone wrong.
+  appointment_reschedule_proposed: ClockIcon,
+  appointment_rescheduled: CheckCircleIcon,
+  appointment_reschedule_declined: CalendarIcon,
+  appointment_message: ChatIcon,
 };
 
 /*

@@ -385,12 +385,64 @@ export function requestAppointment(
 
 export function respondToAppointment(
   id: string,
-  decision: { confirm: boolean; scheduled_date?: string | null; vet_note?: string | null },
+  decision: {
+    confirm: boolean;
+    scheduled_date?: string | null;
+    /** Required by the API on a confirmation: "an appointment with only a
+     *  date leaves the owner not knowing when to arrive." */
+    scheduled_time?: string | null;
+    vet_note?: string | null;
+  },
 ): Promise<import("../types").Appointment> {
   return requestJson<import("../types").Appointment>(
     `/appointments/${id}/respond`,
     "POST",
     decision,
+  );
+}
+
+/** Suggest a new time for a confirmed appointment. Either side may. */
+export function proposeReschedule(
+  id: string,
+  payload: { new_date: string; new_time: string; note?: string | null },
+): Promise<import("../types").Appointment> {
+  return requestJson<import("../types").Appointment>(
+    `/appointments/${id}/reschedule`,
+    "POST",
+    payload,
+  );
+}
+
+/** Accept or turn down a suggested time. Only the side that did not suggest it. */
+export function respondToReschedule(
+  id: string,
+  decision: { accept: boolean; note?: string | null },
+): Promise<import("../types").Appointment> {
+  return requestJson<import("../types").Appointment>(
+    `/appointments/${id}/reschedule/respond`,
+    "POST",
+    decision,
+  );
+}
+
+/** The thread. Fetching it is also what marks the other side's messages read. */
+export async function getAppointmentMessages(
+  id: string,
+): Promise<import("../types").AppointmentMessage[]> {
+  const response = await apiFetch(`${API_BASE}/appointments/${id}/messages`, {
+    headers: authHeaders(),
+  });
+  return parseResponse<import("../types").AppointmentMessage[]>(response);
+}
+
+export function sendAppointmentMessage(
+  id: string,
+  body: string,
+): Promise<import("../types").AppointmentMessage> {
+  return requestJson<import("../types").AppointmentMessage>(
+    `/appointments/${id}/messages`,
+    "POST",
+    { body },
   );
 }
 

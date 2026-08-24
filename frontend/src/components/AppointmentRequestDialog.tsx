@@ -22,9 +22,12 @@ function todayValue(): string {
  * reserved has been misled by us, and the cost of that is landing at a closed
  * door with a sick animal.
  *
- * There is no time picker for the same reason. We do not know which times the
- * practice has free, and a grid of slots would claim we did; the owner writes
- * when suits them in their own words and the practice replies.
+ * The time field is a PREFERENCE, not a slot. There is no grid of available
+ * times, because we do not hold the practice's diary and a grid would claim we
+ * did — an owner picking 14:30 from a list of apparently free slots has been
+ * told something we cannot know. Leaving it blank is a first-class answer and
+ * says so on the field; the practice names the actual time when it confirms,
+ * and that one is binding.
  */
 export default function AppointmentRequestDialog({
   vet,
@@ -42,7 +45,7 @@ export default function AppointmentRequestDialog({
   const [animalId, setAnimalId] = useState(NO_PET);
   const [reason, setReason] = useState("");
   const [preferredDate, setPreferredDate] = useState(todayValue());
-  const [timeNote, setTimeNote] = useState("");
+  const [preferredTime, setPreferredTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,12 +67,12 @@ export default function AppointmentRequestDialog({
         vet_id: vet.id,
         reason: reason.trim(),
         preferred_date: preferredDate,
-        preferred_time_note: timeNote.trim() || null,
+        preferred_time: preferredTime || null,
         animal_id: animalId === NO_PET ? null : animalId,
       });
       toast("Request sent. The practice will reply.", "success");
       setReason("");
-      setTimeNote("");
+      setPreferredTime("");
       onRequested?.();
       onClose();
     } catch (err) {
@@ -100,8 +103,9 @@ export default function AppointmentRequestDialog({
     >
       <div className="space-y-4">
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-          This sends your details to {practice} — it does not reserve a time. They will confirm,
-          suggest another day, or decline, and only a confirmation puts anything on your calendar.
+          This sends your details to {practice} — it does not reserve a time. They will reply
+          with an exact day and time, suggest another, or decline, and only their confirmation
+          puts anything on your calendar.
         </p>
 
         {pets.length > 0 && (
@@ -140,11 +144,11 @@ export default function AppointmentRequestDialog({
         />
 
         <Input
-          label="Any time that suits you (optional)"
-          value={timeNote}
-          onChange={(event) => setTimeNote(event.target.value)}
-          placeholder="Mornings, or after 5pm"
-          maxLength={120}
+          label="Preferred time (optional)"
+          type="time"
+          value={preferredTime}
+          onChange={(event) => setPreferredTime(event.target.value)}
+          hint="Leave this blank if any time that day would do — most people do."
         />
 
         {error && (

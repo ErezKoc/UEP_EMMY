@@ -246,7 +246,11 @@ export type NotificationKind =
   | "appointment_requested"
   | "appointment_confirmed"
   | "appointment_declined"
-  | "appointment_cancelled";
+  | "appointment_cancelled"
+  | "appointment_reschedule_proposed"
+  | "appointment_rescheduled"
+  | "appointment_reschedule_declined"
+  | "appointment_message";
 
 /**
  * One thing the platform wants to tell you.
@@ -648,7 +652,13 @@ export interface EmergencyContacts {
   contacts: EmergencyContact[];
 }
 
-export type AppointmentStatus = "requested" | "confirmed" | "declined" | "cancelled";
+export type AppointmentStatus =
+  | "requested"
+  | "confirmed"
+  /** A move has been suggested; the appointment below it still stands. */
+  | "reschedule_proposed"
+  | "declined"
+  | "cancelled";
 
 /**
  * A request for an appointment, and the practice's answer.
@@ -662,8 +672,13 @@ export interface Appointment {
   status: AppointmentStatus;
   reason: string;
   preferred_date: string;
+  /** "14:30". Null when the owner had no preference, which is common. */
+  preferred_time: string | null;
+  /** Free text from before `preferred_time` existed. Read-only now. */
   preferred_time_note: string | null;
   scheduled_date: string | null;
+  /** The exact time the practice confirmed. Null only on pre-feature rows. */
+  scheduled_time: string | null;
   vet_note: string | null;
   created_at: string;
   responded_at: string | null;
@@ -671,13 +686,30 @@ export interface Appointment {
   vet: Veterinarian;
   animal: Animal | null;
   reminder_id: string | null;
+  /** A move somebody has suggested. The appointment has NOT moved yet. */
+  proposed_date: string | null;
+  proposed_time: string | null;
+  proposed_note: string | null;
+  /** Only the side that did NOT propose may answer, so the client needs this. */
+  proposed_by_id: string | null;
+  message_count: number;
+  /** Unread by YOU — the total is shared, this is personal. */
+  unread_message_count: number;
+}
+
+export interface AppointmentMessage {
+  id: string;
+  body: string;
+  sender: User;
+  created_at: string;
+  read_at: string | null;
 }
 
 export interface AppointmentPayload {
   vet_id: string;
   reason: string;
   preferred_date: string;
-  preferred_time_note?: string | null;
+  preferred_time?: string | null;
   animal_id?: string | null;
 }
 

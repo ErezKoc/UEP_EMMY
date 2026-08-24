@@ -25,6 +25,14 @@ class NotificationKind(str, enum.Enum):
     APPOINTMENT_CONFIRMED = "appointment_confirmed"
     APPOINTMENT_DECLINED = "appointment_declined"
     APPOINTMENT_CANCELLED = "appointment_cancelled"
+    #: Somebody has asked to move a confirmed appointment. Its own kind rather
+    #: than reusing REQUESTED, because the two demand different things of the
+    #: reader: one is "please answer this", the other is "the thing you already
+    #: agreed to may be about to change".
+    APPOINTMENT_RESCHEDULE_PROPOSED = "appointment_reschedule_proposed"
+    APPOINTMENT_RESCHEDULED = "appointment_rescheduled"
+    APPOINTMENT_RESCHEDULE_DECLINED = "appointment_reschedule_declined"
+    APPOINTMENT_MESSAGE = "appointment_message"
 
 
 class Notification(Base):
