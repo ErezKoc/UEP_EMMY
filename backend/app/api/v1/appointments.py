@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.api.deps import get_active_user, get_current_user
 from app.db.session import get_db
 from app.models import Animal, Reminder, ReminderType, User, UserRole
+from app.models import AvailabilitySlot
 from app.models.appointment import Appointment, AppointmentMessage, AppointmentStatus
 from app.models.notification import NotificationKind
 from app.services.notifications import notify
@@ -152,14 +153,34 @@ def request_appointment(
         if animal is None or animal.owner_id != current_user.id:
             raise HTTPException(status_code=404, detail="Pet not found.")
 
+    # A picked opening supplies the date and time, overriding whatever the form
+    # sent. Trusting the client's copy would let a stale page request a time the
+    # practice moved or withdrew hours ago.
+    slot: AvailabilitySlot | None = None
+    if payload.slot_id is not None:
+        slot = db.get(AvailabilitySlot, payload.slot_id)
+        if slot is None or slot.vet_id != vet.id:
+            raise HTTPException(status_code=404, detail="That opening is no longer listed.")
+        if slot.slot_date < date.today():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That opening has already passed.",
+            )
+        if not slot.is_open:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Somebody has taken that opening. Pick another time.",
+            )
+
     appointment = Appointment(
         owner_id=current_user.id,
         vet_id=vet.id,
         animal_id=animal.id if animal else None,
         reason=payload.reason.strip(),
-        preferred_date=payload.preferred_date,
-        preferred_time=payload.preferred_time,
+        preferred_date=slot.slot_date if slot else payload.preferred_date,
+        preferred_time=slot.start_time if slot else payload.preferred_time,
         preferred_time_note=(payload.preferred_time_note or "").strip() or None,
+        slot_id=slot.id if slot else None,
     )
     db.add(appointment)
     db.flush()

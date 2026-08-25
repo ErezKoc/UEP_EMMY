@@ -236,10 +236,18 @@ not gain the demo report. No PostgreSQL handy? Set
 > clinic messaging); `reminders` gained `notify_lead_days` alongside the new
 > `reminder_occurrences` table (marking instances done and snoozing them); and
 > `users` gained `notify_time` and `notify_timezone` (choosing when alerts go
-> out). There are no Alembic migrations yet. The newer thumbnail,
+> out); and `users` gained `clinic_hours_grid`, `clinic_timezone`,
+> `clinic_latitude`, `clinic_longitude`, `specialties`, `consultation_fee_min`,
+> `consultation_fee_max` and `fee_currency`, with `appointments.slot_id`
+> alongside the new `availability_slots` table (finding a vet by distance,
+> specialty, opening status, price and published availability). There are no
+> Alembic migrations yet. The newer thumbnail,
 > analysis ownership, post attachment, verification, moderation, comment-source
-> appointment-time and reminder-scheduling columns are added automatically at
-> startup without deleting existing data. The new appointment columns are all nullable with no
+> appointment-time, reminder-scheduling and vet-directory columns are added
+> automatically at startup without deleting existing data. The directory
+> columns are all nullable with no backfill, deliberately: a practice that has
+> published nothing must read as "not listed", never as far away, closed, or
+> free. The new appointment columns are all nullable with no
 > backfill: an appointment confirmed before exact times existed genuinely has
 > none, and the interface says so on the row rather than inventing one.
 > Databases that predate the auth or base pet-photo fields may still need to be
@@ -267,7 +275,11 @@ API docs: <http://localhost:8000/docs>
 | `POST /v1/posts`               | Create a signed-in user's post; optional analysis  |
 | `GET /v1/posts/{id}`           | Post with comments                                 |
 | `POST /v1/posts/{id}/comments` | Add a signed-in user's comment                     |
-| `GET /v1/vets`                 | Public veterinarian directory; supports `q` and `verified_only`, verified listed first |
+| `GET /v1/vets`                 | Public directory. Filters: `q`, `verified_only`, `accepting_only`, `lat`+`lng`+`radius_km`, `specialty` (repeatable), `open_now`, `max_fee`, `has_availability`; `sort=relevance\|distance\|price\|soonest`. **Every filter excludes practices that have not published that detail** — unknown is never treated as "no" |
+| `GET /v1/vets/specialties`     | The specialty catalogue, so clients never hold their own copy |
+| `GET /v1/vets/{id}/slots`      | Openings the practice has published here (not a view of their diary) |
+| `POST /v1/vets/me/slots`       | A practice publishes an opening, optionally repeating it weekly |
+| `DELETE /v1/vets/me/slots/{id}` | Withdraw one; refused once somebody is confirmed into it |
 | `POST /v1/verification`        | Vet submits a licence document → status `pending`  |
 | `GET /v1/verification/me`      | The caller's own submissions, newest first         |
 | `GET /v1/verification`         | Admin review queue; `?status=pending` filters      |

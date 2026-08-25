@@ -12,6 +12,8 @@ from app.services.storage import StorageService, get_storage_service
 
 router = APIRouter()
 
+from app.services.clinic_directory import normalise_grid, normalise_specialties
+
 _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
@@ -34,6 +36,24 @@ def update_profile(
                 detail="An account with this email already exists.",
             )
         updates["email"] = email
+
+    # Cleaned rather than trusted. Both of these are filter inputs, and a
+    # profile is the one place a practice types them: an unrecognised specialty
+    # is a claim no search can ever match, and a malformed opening grid would
+    # make "open now" answer for a week that does not exist.
+    if "specialties" in updates:
+        updates["specialties"] = normalise_specialties(updates["specialties"])
+    if "clinic_hours_grid" in updates:
+        updates["clinic_hours_grid"] = normalise_grid(updates["clinic_hours_grid"])
+    # A fee range the wrong way round is a typo, and storing it would make the
+    # price filter compare against a ceiling the practice never meant.
+    low = updates.get("consultation_fee_min", current_user.consultation_fee_min)
+    high = updates.get("consultation_fee_max", current_user.consultation_fee_max)
+    if low is not None and high is not None and high < low:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The top of the fee range is below the bottom.",
+        )
 
     for field, value in updates.items():
         setattr(current_user, field, value)

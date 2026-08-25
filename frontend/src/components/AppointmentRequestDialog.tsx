@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { ApiError, getAnimals, requestAppointment } from "../api/client";
 import { Button, Input, Modal, Select, Textarea, useToast } from "./ui";
-import { capitalize } from "../lib/format";
-import type { Animal, Veterinarian } from "../types";
+import { capitalize, formatDate } from "../lib/format";
+import type { Animal, AvailabilitySlot, Veterinarian } from "../types";
 
 const NO_PET = "none";
 
@@ -31,11 +31,19 @@ function todayValue(): string {
  */
 export default function AppointmentRequestDialog({
   vet,
+  slot = null,
   open,
   onClose,
   onRequested,
 }: {
   vet: Veterinarian;
+  /**
+   * A published opening the owner picked in the directory. When set, the date
+   * and time are the practice's own and are not editable here — editing them
+   * would produce a request for a time nobody published, wearing the
+   * appearance of one that was.
+   */
+  slot?: AvailabilitySlot | null;
   open: boolean;
   onClose: () => void;
   onRequested?: () => void;
@@ -66,9 +74,12 @@ export default function AppointmentRequestDialog({
       await requestAppointment({
         vet_id: vet.id,
         reason: reason.trim(),
-        preferred_date: preferredDate,
-        preferred_time: preferredTime || null,
+        // The server takes the date and time from the slot when one is named,
+        // so these are what it uses only for a free-form request.
+        preferred_date: slot ? slot.slot_date : preferredDate,
+        preferred_time: slot ? slot.start_time : preferredTime || null,
         animal_id: animalId === NO_PET ? null : animalId,
+        slot_id: slot?.id ?? null,
       });
       toast("Request sent. The practice will reply.", "success");
       setReason("");
@@ -134,22 +145,44 @@ export default function AppointmentRequestDialog({
           required
         />
 
-        <Input
-          label="Preferred date"
-          type="date"
-          value={preferredDate}
-          min={todayValue()}
-          onChange={(event) => setPreferredDate(event.target.value)}
-          required
-        />
+        {/*
+          A picked opening replaces both fields rather than pre-filling them.
+          An editable copy of the practice's own time would let somebody nudge
+          it by ten minutes and send a request that looks like it was chosen
+          from what was published when it was not.
+        */}
+        {slot ? (
+          <div className="rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm">
+            <p className="font-semibold text-primary-900">
+              {formatDate(slot.slot_date)}, {slot.start_time.slice(0, 5)}–
+              {slot.end_time.slice(0, 5)}
+            </p>
+            <p className="mt-0.5 text-xs text-primary-900/80">
+              A time {practice} published. They still confirm it — this tells them exactly
+              which one you want.
+            </p>
+            {slot.note && <p className="mt-0.5 text-xs text-primary-900/70">{slot.note}</p>}
+          </div>
+        ) : (
+          <>
+            <Input
+              label="Preferred date"
+              type="date"
+              value={preferredDate}
+              min={todayValue()}
+              onChange={(event) => setPreferredDate(event.target.value)}
+              required
+            />
 
-        <Input
-          label="Preferred time (optional)"
-          type="time"
-          value={preferredTime}
-          onChange={(event) => setPreferredTime(event.target.value)}
-          hint="Leave this blank if any time that day would do — most people do."
-        />
+            <Input
+              label="Preferred time (optional)"
+              type="time"
+              value={preferredTime}
+              onChange={(event) => setPreferredTime(event.target.value)}
+              hint="Leave this blank if any time that day would do — most people do."
+            />
+          </>
+        )}
 
         {error && (
           <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">

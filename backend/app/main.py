@@ -113,6 +113,23 @@ def ensure_compatibility_columns() -> None:
         ),
         # NULL means UTC, and the settings page says so rather than guessing.
         "notify_timezone": "ALTER TABLE users ADD COLUMN notify_timezone VARCHAR(64)",
+        # The directory: distance, specialty, opening status and price.
+        # `availability_slots` is a new TABLE and so is created by
+        # `create_all`; these are new COLUMNS on an existing one, which
+        # create_all does not touch.
+        #
+        # Every one nullable with no backfill, and that is the whole point: a
+        # practice that has told us nothing must read as "not listed", never as
+        # far away, closed, or free. Defaulting any of these would put a
+        # made-up fact on a real business's public profile.
+        "clinic_hours_grid": "ALTER TABLE users ADD COLUMN clinic_hours_grid JSON",
+        "clinic_timezone": "ALTER TABLE users ADD COLUMN clinic_timezone VARCHAR(64)",
+        "clinic_latitude": "ALTER TABLE users ADD COLUMN clinic_latitude FLOAT",
+        "clinic_longitude": "ALTER TABLE users ADD COLUMN clinic_longitude FLOAT",
+        "specialties": "ALTER TABLE users ADD COLUMN specialties JSON",
+        "consultation_fee_min": "ALTER TABLE users ADD COLUMN consultation_fee_min FLOAT",
+        "consultation_fee_max": "ALTER TABLE users ADD COLUMN consultation_fee_max FLOAT",
+        "fee_currency": "ALTER TABLE users ADD COLUMN fee_currency VARCHAR(8)",
     }
     comment_columns = {column["name"] for column in inspector.get_columns("comments")}
     comment_additions = {
@@ -142,6 +159,9 @@ def ensure_compatibility_columns() -> None:
         "proposed_time": "ALTER TABLE appointments ADD COLUMN proposed_time TIME",
         "proposed_by_id": "ALTER TABLE appointments ADD COLUMN proposed_by_id CHAR(32)",
         "proposed_note": "ALTER TABLE appointments ADD COLUMN proposed_note VARCHAR(1000)",
+        # Which published opening a request was made against, when the owner
+        # picked one. NULL for every request that named its own time.
+        "slot_id": "ALTER TABLE appointments ADD COLUMN slot_id CHAR(32)",
     }
     reminder_columns = {column["name"] for column in inspector.get_columns("reminders")}
     reminder_additions = {

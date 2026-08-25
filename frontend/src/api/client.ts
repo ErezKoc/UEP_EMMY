@@ -343,18 +343,78 @@ export function toggleHelpful(commentId: string) {
   return requestJson<import("../types").Comment>(`/posts/comments/${commentId}/helpful`, "POST");
 }
 
-export async function getVeterinarians(
-  q = "",
-  verifiedOnly = false,
-  acceptingOnly = false,
-): Promise<Veterinarian[]> {
+export interface VetSearch {
+  q?: string;
+  verifiedOnly?: boolean;
+  acceptingOnly?: boolean;
+  /** Where to measure from. Both or neither — a latitude alone locates nothing. */
+  lat?: number | null;
+  lng?: number | null;
+  radiusKm?: number | null;
+  specialties?: string[];
+  openNow?: boolean;
+  maxFee?: number | null;
+  hasAvailability?: boolean;
+  availabilityDays?: number;
+  sort?: "relevance" | "distance" | "price" | "soonest";
+}
+
+export async function getVeterinarians(search: VetSearch = {}): Promise<Veterinarian[]> {
   const params = new URLSearchParams();
-  if (q.trim()) params.set("q", q.trim());
-  if (verifiedOnly) params.set("verified_only", "true");
-  if (acceptingOnly) params.set("accepting_only", "true");
+  if (search.q?.trim()) params.set("q", search.q.trim());
+  if (search.verifiedOnly) params.set("verified_only", "true");
+  if (search.acceptingOnly) params.set("accepting_only", "true");
+  // Sent as a pair or not at all: half a coordinate places nothing, and the
+  // server would compute a distance from a point that does not exist.
+  if (search.lat != null && search.lng != null) {
+    params.set("lat", String(search.lat));
+    params.set("lng", String(search.lng));
+    if (search.radiusKm != null) params.set("radius_km", String(search.radiusKm));
+  }
+  for (const slug of search.specialties ?? []) params.append("specialty", slug);
+  if (search.openNow) params.set("open_now", "true");
+  if (search.maxFee != null) params.set("max_fee", String(search.maxFee));
+  if (search.hasAvailability) params.set("has_availability", "true");
+  if (search.availabilityDays) params.set("availability_days", String(search.availabilityDays));
+  if (search.sort && search.sort !== "relevance") params.set("sort", search.sort);
   const suffix = params.size > 0 ? `?${params}` : "";
   const response = await apiFetch(`${API_BASE}/vets${suffix}`);
   return parseResponse<Veterinarian[]>(response);
+}
+
+/** The specialty catalogue, so the client never holds its own copy. */
+export async function getSpecialties(): Promise<import("../types").SpecialtyOption[]> {
+  const response = await apiFetch(`${API_BASE}/vets/specialties`);
+  return parseResponse<import("../types").SpecialtyOption[]>(response);
+}
+
+/** Openings one practice has published. Public, like the rest of the directory. */
+export async function getVetSlots(
+  vetId: string,
+  days = 14,
+): Promise<import("../types").AvailabilitySlot[]> {
+  const response = await apiFetch(`${API_BASE}/vets/${vetId}/slots?days=${days}`);
+  return parseResponse<import("../types").AvailabilitySlot[]>(response);
+}
+
+/** Publish an opening on your own practice, optionally repeating it weekly. */
+export function publishSlots(payload: {
+  slot_date: string;
+  start_time: string;
+  end_time: string;
+  capacity?: number;
+  note?: string | null;
+  repeat_weeks?: number;
+}): Promise<import("../types").AvailabilitySlot[]> {
+  return requestJson<import("../types").AvailabilitySlot[]>("/vets/me/slots", "POST", payload);
+}
+
+export async function withdrawSlot(slotId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE}/vets/me/slots/${slotId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  await parseResponse<void>(response);
 }
 
 /** Unauthenticated on purpose: an emergency number is no use behind a login. */

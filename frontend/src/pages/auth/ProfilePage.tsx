@@ -4,6 +4,11 @@ import { ApiError, updateProfile, uploadAvatar } from "../../api/client";
 import { useSession } from "../../auth/SessionContext";
 import { Avatar, Button, Card, CameraIcon, Input, RoleBadge, Textarea, useToast } from "../../components/ui";
 import type { CurrentUser } from "../../types";
+import PublishedSlotsCard from "../../components/PublishedSlotsCard";
+import VetDirectoryFields, {
+  directoryPayload,
+  initialDirectoryState,
+} from "../../components/VetDirectoryFields";
 import VerificationCard from "./VerificationCard";
 
 const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -38,6 +43,7 @@ function ProfileContent({ user }: { user: CurrentUser }) {
   const [clinicPostcode, setClinicPostcode] = useState(user.clinic_postcode ?? "");
   const [clinicCountry, setClinicCountry] = useState(user.clinic_country ?? "");
   const [clinicHours, setClinicHours] = useState(user.clinic_hours ?? "");
+  const [directory, setDirectory] = useState(() => initialDirectoryState(user));
   const [acceptsAppointments, setAcceptsAppointments] = useState(
     user.accepts_appointments ?? false,
   );
@@ -88,6 +94,7 @@ function ProfileContent({ user }: { user: CurrentUser }) {
               clinic_country: clinicCountry.trim(),
               clinic_hours: clinicHours.trim(),
               accepts_appointments: acceptsAppointments,
+              ...directoryPayload(directory),
             }
           : {}),
       });
@@ -252,6 +259,19 @@ function ProfileContent({ user }: { user: CurrentUser }) {
                 maxLength={500}
               />
 
+              {/*
+                Everything the directory filters on, in one block below the
+                free-text hours it supplements rather than replaces.
+              */}
+              <div className="rounded-lg border border-slate-200 p-4">
+                <p className="mb-3 text-xs text-slate-500">
+                  These are what owners search the directory by — distance, specialty, open
+                  now, and price. All optional: leaving one blank keeps you listed, but out
+                  of searches that filter on it.
+                </p>
+                <VetDirectoryFields value={directory} onChange={setDirectory} />
+              </div>
+
               <label className="flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-700">
                 <input
                   type="checkbox"
@@ -282,6 +302,10 @@ function ProfileContent({ user }: { user: CurrentUser }) {
           </div>
         </form>
       </Card>
+
+      {/* Only for practices taking requests: publishing times an owner cannot
+          act on would advertise a door that does not open. */}
+      {isVet && user.accepts_appointments && <PublishedSlotsCard vetId={user.id} />}
 
       {isVet && <VerificationCard user={user} />}
     </div>

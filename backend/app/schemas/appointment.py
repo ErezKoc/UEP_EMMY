@@ -19,6 +19,9 @@ class AppointmentCreate(BaseModel):
     preferred_time: time | None = None
     preferred_time_note: str | None = Field(default=None, max_length=120)
     animal_id: uuid.UUID | None = None
+    #: A published opening the owner picked, instead of naming their own time.
+    #: When set, the date and time are taken from the slot.
+    slot_id: uuid.UUID | None = None
 
 
 class AppointmentDecision(BaseModel):
@@ -123,6 +126,8 @@ class AppointmentRead(BaseModel):
     proposed_by_id: uuid.UUID | None = None
 
     # ------------------------------------------------------------- the thread
+    #: The published opening this was requested against, if any.
+    slot_id: uuid.UUID | None = None
     message_count: int = 0
     #: Unread BY THE VIEWER, so it cannot be read off the row alone - the
     #: appointments endpoint fills it in per caller, the way the community feed

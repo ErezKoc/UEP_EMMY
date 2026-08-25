@@ -46,6 +46,15 @@ export interface CurrentUser extends User {
   clinic_postcode: string | null;
   clinic_country: string | null;
   clinic_hours: string | null;
+  /** The directory fields a practice edits on its own profile. */
+  clinic_hours_grid: Record<string, string[][]> | null;
+  clinic_timezone: string | null;
+  clinic_latitude: number | null;
+  clinic_longitude: number | null;
+  specialties: string[];
+  consultation_fee_min: number | null;
+  consultation_fee_max: number | null;
+  fee_currency: string | null;
   accepts_appointments: boolean;
   notify_in_app: boolean;
   notify_email: boolean;
@@ -106,6 +115,14 @@ export interface ProfileUpdatePayload {
   clinic_postcode?: string;
   clinic_country?: string;
   clinic_hours?: string;
+  clinic_hours_grid?: Record<string, string[][]> | null;
+  clinic_timezone?: string | null;
+  clinic_latitude?: number | null;
+  clinic_longitude?: number | null;
+  specialties?: string[] | null;
+  consultation_fee_min?: number | null;
+  consultation_fee_max?: number | null;
+  fee_currency?: string | null;
   accepts_appointments?: boolean;
   notify_in_app?: boolean;
   notify_email?: boolean;
@@ -686,6 +703,33 @@ export interface Post {
   created_at: string;
 }
 
+/**
+ * One opening a practice has published on this platform.
+ *
+ * Not a window into their diary — this app has no connection to whatever
+ * software runs a clinic's calendar. It is the practice declaring here that
+ * this time is free, which is real because they said it, and it still produces
+ * a request the practice answers rather than a booking.
+ */
+export interface AvailabilitySlot {
+  id: string;
+  vet_id: string;
+  slot_date: string;
+  start_time: string;
+  end_time: string;
+  capacity: number;
+  note: string | null;
+  /** Confirmed bookings against it. Sent with capacity so an open surgery can
+   *  read as "2 of 6 taken" rather than a bare number. */
+  taken: number;
+  is_open: boolean;
+}
+
+export interface SpecialtyOption {
+  value: string;
+  label: string;
+}
+
 export interface Veterinarian {
   id: string;
   display_name: string;
@@ -709,8 +753,43 @@ export interface Veterinarian {
   clinic_postcode: string | null;
   clinic_country: string | null;
   clinic_hours: string | null;
+  /**
+   * The same hours as a weekly grid, for filtering. Sits BESIDE the sentence
+   * above rather than replacing it: a grid cannot express alternate Saturdays
+   * or a seasonal closure, so the practice's own wording stays what a human
+   * reads. Null when the practice has not filled it in.
+   */
+  clinic_hours_grid: Record<string, string[][]> | null;
+  clinic_timezone: string | null;
+  clinic_latitude: number | null;
+  clinic_longitude: number | null;
+  specialties: string[];
+  /** The same list in words, so no client holds its own copy of the catalogue. */
+  specialty_labels: string[];
+  consultation_fee_min: number | null;
+  consultation_fee_max: number | null;
+  fee_currency: string | null;
   /** Whether this practice takes appointment requests through the platform. */
   accepts_appointments: boolean;
+
+  /**
+   * Straight-line kilometres from the point you searched from. Null means
+   * unknown — one end has no coordinates — and never "far".
+   */
+  distance_km: number | null;
+  /**
+   * True, false, or **null for "no hours published"**. The third state is the
+   * important one: a clinic nobody entered hours for is not a closed clinic,
+   * and treating null as false is how a real practice gets hidden.
+   */
+  open_now: boolean | null;
+  closes_at: string | null;
+  opens_at: string | null;
+  opens_day: string | null;
+  /** The soonest opening the practice has PUBLISHED HERE. Not their diary. */
+  next_slot_date: string | null;
+  next_slot_time: string | null;
+  published_slot_count: number;
   verification_status: VerificationStatus;
   is_verified_vet: boolean;
 }
@@ -795,6 +874,8 @@ export interface AppointmentPayload {
   preferred_date: string;
   preferred_time?: string | null;
   animal_id?: string | null;
+  /** A published opening. When set, the server takes the date and time from it. */
+  slot_id?: string | null;
 }
 
 export interface Comment {

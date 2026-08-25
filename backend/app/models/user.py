@@ -3,10 +3,11 @@ import uuid
 from datetime import datetime, time, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Time, Uuid
+from sqlalchemy import Boolean, DateTime, Enum, Float, Integer, String, Time, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import PortableJSON
 
 if TYPE_CHECKING:
     from app.models.animal import Animal
@@ -93,6 +94,46 @@ class User(Base):
     #: closures. A practice writing its own sentence is more accurate than a
     #: grid that quietly rounds it off.
     clinic_hours: Mapped[str | None] = mapped_column(String(500))
+    #: The same opening hours as a machine-readable weekly grid, for filtering.
+    #:
+    #: ADDED BESIDE the sentence above, never replacing it, and the reason is
+    #: the comment above: a grid cannot express alternate Saturdays or a
+    #: seasonal closure, so the practice's own sentence stays the thing a human
+    #: reads. This exists only so "open now" is a question the directory can
+    #: answer at all, and it is optional - a practice that skips it keeps its
+    #: sentence and is reported as "hours not listed", never as closed.
+    #:
+    #: Shape: {"mon": [["09:00","13:00"], ["14:00","18:00"]], ...}. A list per
+    #: day because split hours are the norm, and a single pair would tell
+    #: somebody with an emergency at 13:30 to set off.
+    clinic_hours_grid: Mapped[dict | None] = mapped_column(PortableJSON, nullable=True)
+    #: The IANA zone the grid is read in. Without it "open until 18:00" is
+    #: evaluated wherever the server happens to live.
+    clinic_timezone: Mapped[str | None] = mapped_column(String(64))
+
+    #: Where the practice is, for distance. Latitude and longitude rather than
+    #: a geocoded address, because geocoding needs a service this deployment
+    #: does not have - and a wrong pin is worse than no pin, so the practice
+    #: sets its own.
+    clinic_latitude: Mapped[float | None] = mapped_column(Float)
+    clinic_longitude: Mapped[float | None] = mapped_column(Float)
+
+    #: What this practice treats, as slugs from `SPECIALTIES`. A fixed list
+    #: rather than free text because it is a filter - see the catalogue.
+    specialties: Mapped[list | None] = mapped_column(PortableJSON, nullable=True)
+
+    #: What a standard consultation costs, as a range.
+    #:
+    #: A range, not a price, because a consultation is not one price and a
+    #: single figure would be either the cheapest thing they do or a number
+    #: nobody is ever charged. Both ends optional: a practice willing to say
+    #: "from 400" should not have to invent a ceiling.
+    consultation_fee_min: Mapped[float | None] = mapped_column(Float)
+    consultation_fee_max: Mapped[float | None] = mapped_column(Float)
+    #: ISO code. Stored per practice, because this directory has clinics in
+    #: more than one country and an unlabelled "400" is not a price.
+    fee_currency: Mapped[str | None] = mapped_column(String(8))
+
     #: Whether this practice takes appointment requests through the platform.
     #: Opt-in: a request sent to a practice that is not watching for one is
     #: worse than no button, because the owner believes they have asked.
@@ -146,6 +187,12 @@ class User(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    #: Openings this practice has published on the platform. Empty for an
+    #: owner account, and empty for a practice that has published none -
+    #: which the directory reports as "no times published", not as full.
+    availability_slots: Mapped[list["AvailabilitySlot"]] = relationship(
+        "AvailabilitySlot", back_populates="vet", cascade="all, delete-orphan"
+    )
     animals: Mapped[list["Animal"]] = relationship(back_populates="owner")
     posts: Mapped[list["Post"]] = relationship(back_populates="author")
     comments: Mapped[list["Comment"]] = relationship(back_populates="author")

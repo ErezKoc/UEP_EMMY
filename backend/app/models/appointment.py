@@ -126,6 +126,17 @@ class Appointment(Base):
     )
     proposed_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
+    #: The published opening this request was made against, when the owner
+    #: picked one rather than proposing a time of their own.
+    #:
+    #: Nullable, because both routes stay open: an owner can name a slot the
+    #: practice published, or just say when suits them. Removing the free-text
+    #: route would make the directory's coverage the limit on who can ask for
+    #: an appointment at all, and most practices publish nothing.
+    slot_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("availability_slots.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     #: The calendar entry a confirmation created, so cancelling can remove it
     #: again rather than leaving a reminder for an appointment nobody is having.
     reminder_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -143,6 +154,7 @@ class Appointment(Base):
     vet = relationship("User", foreign_keys=[vet_id])
     animal = relationship("Animal")
     proposed_by = relationship("User", foreign_keys=[proposed_by_id])
+    slot = relationship("AvailabilitySlot", back_populates="appointments")
     messages: Mapped[list["AppointmentMessage"]] = relationship(
         back_populates="appointment",
         cascade="all, delete-orphan",
