@@ -163,9 +163,13 @@ export default function GettingStarted({ reminderCount }: { reminderCount: numbe
     <section className="rounded-2xl border border-primary-200 bg-primary-50/50 p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">
-            Welcome, {user.display_name.split(" ")[0]}
-          </h2>
+          {/*
+            No longer greets by name. The dashboard above now opens with
+            "Welcome back, Alex", and two greetings stacked one on top of the
+            other reads as a page that has been assembled rather than designed.
+            The panel keeps the count, which is the part that is its own.
+          */}
+          <h2 className="text-lg font-bold text-slate-800">Getting started</h2>
           <p className="mt-1 text-sm text-slate-600">
             {/*
               Not "four things": four are listed but only three are counted,

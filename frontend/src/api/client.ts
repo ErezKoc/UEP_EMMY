@@ -503,6 +503,19 @@ export function resolveDuplicateReminders(deleteIds: string[]): Promise<Reminder
   });
 }
 
+/**
+ * The whole dashboard in one request.
+ *
+ * One call rather than five. The page was already exceeding the browser's
+ * six-connection budget — the getting-started checks had been made sequential
+ * for exactly that reason — and per-pet summaries assembled here would have
+ * meant a request per pet on top of that.
+ */
+export async function getDashboard(): Promise<import("../types").DashboardData> {
+  const response = await apiFetch(`${API_BASE}/dashboard`, { headers: authHeaders() });
+  return parseResponse<import("../types").DashboardData>(response);
+}
+
 // ----------------------------------------------------------- appointments
 
 export async function getAppointments(openOnly = false): Promise<

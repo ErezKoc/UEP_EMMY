@@ -288,6 +288,7 @@ API docs: <http://localhost:8000/docs>
 | `GET /v1/reports/me`           | Reports the caller has filed, newest first          |
 | `GET /v1/reports`              | Admin moderation queue; `?status=pending` filters   |
 | `PATCH /v1/reports/{id}`       | Admin dismisses, or suspends/bans/reinstates the reported account |
+| `GET /v1/dashboard`            | The whole owner dashboard in one request: a health summary per pet, a ranked task list, and the next appointment. Assembled and ranked server-side so this page and the calendar cannot disagree about what is urgent |
 | `GET /v1/reminders`            | The caller's reminders; `include_finished=false` drops ones with nothing left to do |
 | `POST /v1/reminders`           | Create one; **409 if an identical reminder already exists** (same pet, type, date and title) |
 | `GET /v1/reminders/occurrences` | Every dated instance in `start`..`end`, after completions and snoozes — what the month grid draws |

@@ -681,6 +681,57 @@ export interface AnalysisDetail extends AnalysisHistoryItem {
  * from a photo analysis: a symptom check that the triage engine could not
  * assess produces one too, and it has answers to carry rather than an image.
  */
+/**
+ * One thing worth doing, already ranked by the server.
+ *
+ * `severity` is about consequence, not loudness. "urgent" means an animal may
+ * need seeing or an appointment may be lost; "soon" has a deadline; "info" is
+ * worth knowing. The ranking is done once on the server so this page and the
+ * calendar can never disagree about what matters most.
+ */
+export interface DashboardTask {
+  kind: string;
+  severity: "urgent" | "soon" | "info";
+  title: string;
+  detail: string;
+  link: string;
+  pet_name: string | null;
+  due: string | null;
+}
+
+export interface AppointmentBrief {
+  id: string;
+  scheduled_date: string | null;
+  scheduled_time: string | null;
+  practice: string;
+  pet_name: string | null;
+  /** A suggested move is still waiting on somebody, so the date may change. */
+  move_pending: boolean;
+}
+
+export interface PetSummary {
+  animal: Animal;
+  overdue_reminders: number;
+  next_reminder_title: string | null;
+  next_reminder_date: string | null;
+  next_appointment: AppointmentBrief | null;
+  /** Kept as a plain string: a stored verdict this build does not recognise
+   *  must render as unknown rather than break the page. */
+  last_check_level: string | null;
+  last_check_headline: string | null;
+  last_check_at: string | null;
+  last_analysis_at: string | null;
+  profile_conflicts: number;
+  tasks: DashboardTask[];
+}
+
+export interface DashboardData {
+  pets: PetSummary[];
+  tasks: DashboardTask[];
+  next_appointment: AppointmentBrief | null;
+  urgent_count: number;
+}
+
 export interface PostPrefill {
   analysis_id: string | null;
   image_url: string | null;
