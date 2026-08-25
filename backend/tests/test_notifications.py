@@ -4,7 +4,7 @@ The scheduler has no memory between runs and is designed to be safe to run as
 often as it likes. Everything that makes that true is here.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -131,7 +131,15 @@ def session():
 
 @pytest.fixture
 def owner(session):
-    user = User(email="owner@example.com", display_name="Owner")
+    """An owner whose sending hour has always already passed.
+
+    `notify_time` defaults to 09:00, which would make every assertion below
+    depend on what time of day the suite happens to run - green after breakfast
+    and red before it. Midnight takes the clock out of the tests that are not
+    about the clock; the ones that are set their own and pass an explicit
+    moment.
+    """
+    user = User(email="owner@example.com", display_name="Owner", notify_time=time(0, 0))
     session.add(user)
     session.commit()
     return user

@@ -233,10 +233,13 @@ not gain the demo report. No PostgreSQL handy? Set
 > `appointments` gained `preferred_time`, `scheduled_time`, `proposed_date`,
 > `proposed_time`, `proposed_by_id` and `proposed_note` alongside the new
 > `appointment_messages` table (exact appointment times, rescheduling, and
-> clinic messaging). There are no Alembic migrations yet. The newer thumbnail,
+> clinic messaging); `reminders` gained `notify_lead_days` alongside the new
+> `reminder_occurrences` table (marking instances done and snoozing them); and
+> `users` gained `notify_time` and `notify_timezone` (choosing when alerts go
+> out). There are no Alembic migrations yet. The newer thumbnail,
 > analysis ownership, post attachment, verification, moderation, comment-source
-> and appointment-time columns are added automatically at startup without
-> deleting existing data. The new appointment columns are all nullable with no
+> appointment-time and reminder-scheduling columns are added automatically at
+> startup without deleting existing data. The new appointment columns are all nullable with no
 > backfill: an appointment confirmed before exact times existed genuinely has
 > none, and the interface says so on the row rather than inventing one.
 > Databases that predate the auth or base pet-photo fields may still need to be
@@ -258,6 +261,7 @@ API docs: <http://localhost:8000/docs>
 | `POST /v1/analysis/upload`     | Multipart image upload → stored + ONNX AI analysis; optional `animal_id` links it to your pet (auth required for linking) |
 | `GET /v1/analysis`             | Your past analyses, newest first; `?animal_id=` filters by pet |
 | `GET /v1/analysis/{id}`        | Full owner-only analysis, symptoms, and triage details |
+| —                              | Every analysis read carries `conflicts[]`: where the result contradicts the linked pet's profile (species, breed, age). Computed per request, never stored, so correcting the analysis or fixing the profile clears it |
 | `POST /v1/triage`              | Assess reported symptoms; stores nothing (handy for testing the rules) |
 | `GET /v1/posts`                | Paginated posts; supports `q` and `author_role`    |
 | `POST /v1/posts`               | Create a signed-in user's post; optional analysis  |
@@ -272,6 +276,13 @@ API docs: <http://localhost:8000/docs>
 | `GET /v1/reports/me`           | Reports the caller has filed, newest first          |
 | `GET /v1/reports`              | Admin moderation queue; `?status=pending` filters   |
 | `PATCH /v1/reports/{id}`       | Admin dismisses, or suspends/bans/reinstates the reported account |
+| `GET /v1/reminders`            | The caller's reminders; `include_finished=false` drops ones with nothing left to do |
+| `POST /v1/reminders`           | Create one; **409 if an identical reminder already exists** (same pet, type, date and title) |
+| `GET /v1/reminders/occurrences` | Every dated instance in `start`..`end`, after completions and snoozes — what the month grid draws |
+| `POST/DELETE /v1/reminders/{id}/occurrences/{date}/complete` | Tick off one instance, or undo it. Keyed on the SCHEDULED date |
+| `POST/DELETE /v1/reminders/{id}/occurrences/{date}/snooze` | Push one instance back (`days` or `until`), or put it back |
+| `GET /v1/reminders/duplicates` | Groups of identical reminders, oldest marked to keep |
+| `POST /v1/reminders/duplicates/resolve` | Delete named copies; each is re-checked against the live groups first |
 | `GET/POST /v1/appointments`    | Both sides of the caller's appointments / send a request (optional `preferred_time`) |
 | `POST /v1/appointments/{id}/respond` | The practice confirms or declines; **`scheduled_time` is required to confirm** |
 | `POST /v1/appointments/{id}/reschedule` | Either side suggests a new day and time for a confirmed appointment |

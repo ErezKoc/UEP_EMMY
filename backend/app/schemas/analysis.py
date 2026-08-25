@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -66,6 +66,26 @@ class AnalysisUpdate(BaseModel):
     animal_id: uuid.UUID | None = None
 
 
+class ProfileConflictRead(BaseModel):
+    """One thing this analysis and the pet's profile do not agree about.
+
+    Computed on every read, never stored. A stored conflict is a stale one the
+    moment the owner edits the profile or corrects the analysis, and a warning
+    that survives the fix teaches people to ignore warnings.
+    """
+
+    field: Literal["species", "breed", "age"]
+    #: "high" is a disagreement that changes what other features do, or one too
+    #: large to be a boundary case. "low" is worth a look, not a worry.
+    severity: Literal["high", "low"]
+    profile_says: str
+    analysis_says: str
+    message: str
+    #: True when the analysis's side of the disagreement is the owner's own
+    #: correction rather than the model's output.
+    from_correction: bool = False
+
+
 class AnalysisResponse(BaseModel):
     analysis_id: uuid.UUID
     animal_id: uuid.UUID | None
@@ -74,6 +94,9 @@ class AnalysisResponse(BaseModel):
     result: AnalysisResult
     # Present only when the owner answered the symptom questions.
     triage: TriageAssessment | None = None
+    #: Where this result contradicts the linked pet's profile. Empty when no
+    #: pet is linked - there is nothing to contradict.
+    conflicts: list[ProfileConflictRead] = Field(default_factory=list)
 
 
 class AnalysisHistoryItem(BaseModel):
@@ -93,6 +116,9 @@ class AnalysisHistoryItem(BaseModel):
     # corrected value and keeps the model's original beside it.
     correction: AnalysisCorrection | None = None
     corrected_at: UTCDateTime | None = None
+    #: Filled in by the endpoint, not read off the row: it depends on the pet's
+    #: profile as it is right now, not as it was when the photo was uploaded.
+    conflicts: list[ProfileConflictRead] = Field(default_factory=list)
 
     @field_validator("triage", mode="before")
     @classmethod

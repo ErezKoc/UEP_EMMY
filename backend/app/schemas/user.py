@@ -1,6 +1,8 @@
 import uuid
+from datetime import time
+from zoneinfo import available_timezones
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.user import AccountStatus, UserRole, VerificationStatus
 from app.schemas.common import UTCDateTime
@@ -33,6 +35,8 @@ class UserRead(BaseModel):
     notify_in_app: bool = True
     notify_email: bool = True
     notify_lead_days: int = 1
+    notify_time: time = time(9, 0)
+    notify_timezone: str | None = None
     verification_status: VerificationStatus
     # Convenience flag so clients never re-derive "vet AND verified".
     is_verified_vet: bool
@@ -128,6 +132,25 @@ class UserUpdate(BaseModel):
     # Capped rather than unbounded: an alert 200 days before a booster is not a
     # reminder, it is noise, and the scheduler would announce it every day.
     notify_lead_days: int | None = Field(default=None, ge=0, le=30)
+    #: What time of day alerts go out, on the reader's own clock.
+    notify_time: time | None = None
+    #: An IANA zone name ("Europe/Istanbul"). Validated rather than stored as
+    #: typed: an unknown zone would silently fall back to UTC in the scheduler,
+    #: and the settings page would keep showing the value the person chose - so
+    #: they would believe a preference was honoured that never was.
+    notify_timezone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("notify_timezone")
+    @classmethod
+    def a_zone_the_platform_knows(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        if cleaned not in available_timezones():
+            raise ValueError(f"{cleaned!r} is not a timezone this server recognises.")
+        return cleaned
 
 
 class PasswordChange(BaseModel):

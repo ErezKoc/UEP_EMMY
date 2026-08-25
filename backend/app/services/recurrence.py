@@ -4,8 +4,12 @@ This moved to the server because something other than a calendar grid now has
 to answer the question. Notifications are decided here, and a rule that lives
 only in the browser cannot tell a scheduler when to send an email.
 
-The frontend still computes occurrences to paint the month view; it must agree
-with this module, and `test_recurrence.py` is where that agreement is pinned.
+The frontend no longer computes occurrences at all. It used to mirror this
+module to paint the month grid, and that mirror was affordable only while the
+answer was pure arithmetic; once completions and snoozes joined it, keeping two
+implementations honest would have meant duplicating those too. The calendar now
+asks `GET /v1/reminders/occurrences` for the window it is drawing, so there is
+one implementation and nothing to keep in step.
 
 Deliberately not a general iCalendar RRULE implementation. Pet reminders are
 "every 3 months", "every 8 days", "every year" — an interval and a unit covers
@@ -16,9 +20,11 @@ on this team would be able to debug at 2am.
 from __future__ import annotations
 
 from calendar import monthrange
+from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Iterable
 
-from app.reminder import Recurrence, Reminder
+from app.reminder import Recurrence, Reminder, ReminderOccurrence
 
 
 def _add_months(start: date, months: int) -> date:
@@ -146,3 +152,147 @@ def describe(reminder: Reminder) -> str:
     if reminder.repeat_until is not None:
         phrase += f", until {reminder.repeat_until:%d %b %Y}"
     return phrase
+
+
+# --------------------------------------------------- what has been done to it
+#
+# Everything above answers "when does the RULE fall due". Everything below
+# answers "when is the owner actually expected to do something", which is the
+# rule minus what they have already ticked off, with anything they postponed
+# moved to where they postponed it to.
+#
+# Kept as a separate layer rather than folded into the generators because the
+# arithmetic is worth testing without a database anywhere near it, and because
+# a scheduler asking "is this done?" needs a different answer from an export
+# asking "what is the pattern?".
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    """One dated instance of a reminder, after completions and snoozes.
+
+    `scheduled_date` is what the rule produced and is the identity used by
+    every endpoint, notification key and database row. `date` is where it
+    actually lands, which differs only when somebody snoozed it.
+    """
+
+    scheduled_date: date
+    date: date
+    done: bool
+    snoozed: bool
+
+    @property
+    def is_pending(self) -> bool:
+        return not self.done
+
+
+def _overrides(records: Iterable[ReminderOccurrence]) -> dict[date, ReminderOccurrence]:
+    return {record.occurrence_date: record for record in records}
+
+
+def resolved_occurrences(
+    reminder: Reminder,
+    start: date,
+    end: date,
+    records: Iterable[ReminderOccurrence] | None = None,
+) -> list[Occurrence]:
+    """Every instance visible in [start, end], with its real date and state.
+
+    A snoozed instance is returned when its SNOOZED date falls in the window,
+    not its scheduled one - the calendar has to draw it where the owner will
+    look for it. So the window is widened before generating and the results
+    filtered afterwards, otherwise a dose scheduled on the 30th and pushed to
+    the 2nd would vanish from both months.
+    """
+    records = list(records if records is not None else reminder.occurrences)
+    overrides = _overrides(records)
+
+    # Wide enough to catch anything snoozed into this window from outside it.
+    # A snooze is capped at a year by the endpoint, so a year either side is
+    # the whole of it.
+    scan_from = start - timedelta(days=370)
+    scan_to = end + timedelta(days=370)
+
+    resolved: list[Occurrence] = []
+    for scheduled in occurrences_between(reminder, scan_from, scan_to):
+        record = overrides.get(scheduled)
+        landing = record.effective_date if record is not None else scheduled
+        if not (start <= landing <= end):
+            continue
+        resolved.append(
+            Occurrence(
+                scheduled_date=scheduled,
+                date=landing,
+                done=record is not None and record.is_done,
+                snoozed=record is not None and record.snoozed_to is not None,
+            )
+        )
+    resolved.sort(key=lambda item: (item.date, item.scheduled_date))
+    return resolved
+
+
+def next_pending_occurrence(
+    reminder: Reminder,
+    on_or_after: date,
+    records: Iterable[ReminderOccurrence] | None = None,
+) -> Occurrence | None:
+    """The soonest instance still waiting to be done.
+
+    Completed ones are skipped rather than merely marked, because "next due"
+    is the number an owner plans around and a date they have already dealt with
+    is not it. A monthly treatment ticked off this morning should read as due
+    next month, not as due today in a lighter shade of grey.
+    """
+    records = list(records if records is not None else reminder.occurrences)
+    overrides = _overrides(records)
+
+    def build(scheduled: date) -> Occurrence:
+        record = overrides.get(scheduled)
+        return Occurrence(
+            scheduled_date=scheduled,
+            date=record.effective_date if record is not None else scheduled,
+            done=False,
+            snoozed=record is not None and record.snoozed_to is not None,
+        )
+
+    # Two passes, because a snooze and a long interval fail in opposite
+    # directions and neither one search handles both.
+    #
+    # First: anything ALREADY scheduled in the past that was snoozed forward to
+    # on or after this date. Walking forwards from `on_or_after` would never
+    # find it, because its scheduled date is behind us. Only rows that exist
+    # are checked, so this costs nothing when nothing has been snoozed.
+    best: Occurrence | None = None
+    for record in records:
+        if record.is_done or record.snoozed_to is None:
+            continue
+        if record.snoozed_to < on_or_after:
+            continue
+        candidate = build(record.occurrence_date)
+        if best is None or candidate.date < best.date:
+            best = candidate
+
+    # Second: forwards along the schedule itself, skipping what is done. The
+    # step count is bounded rather than the date range, so "every 365 days"
+    # gets the same treatment as "every day" - a window of a year would find
+    # nothing for the first and everything for the second.
+    cursor = on_or_after
+    for _ in range(512):
+        scheduled = next_occurrence(reminder, cursor)
+        if scheduled is None:
+            break
+        if best is not None and best.date <= scheduled:
+            # Nothing further along the schedule can beat what we already have.
+            break
+        record = overrides.get(scheduled)
+        if record is None or not record.is_done:
+            candidate = build(scheduled)
+            # A snooze can push an instance past later ones; it is still a
+            # candidate, but not necessarily the winner.
+            if candidate.date >= on_or_after and (best is None or candidate.date < best.date):
+                best = candidate
+            if not candidate.snoozed:
+                break
+        cursor = scheduled + timedelta(days=1)
+
+    return best

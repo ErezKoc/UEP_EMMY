@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createAnimal, getAnimals } from "../../api/client";
 import AnalysisCard from "../../components/AnalysisCard";
 import ImageUpload from "../../components/ImageUpload";
+import ProfileConflictNotice from "../../components/ProfileConflictNotice";
 import { Button, Card, HistoryIcon, Select, useToast } from "../../components/ui";
 import { capitalize } from "../../lib/format";
 import { formatMatchScore } from "../../lib/confidence";
@@ -175,6 +176,21 @@ export default function AnalyzePage() {
         </>
       ) : (
         <>
+          {/*
+            First thing under the result, before the card and well before the
+            product suggestions. This is the one screen an owner is certain to
+            look at, and a contradiction they only meet later - on a history
+            row, or never - is one they have already acted on.
+          */}
+          {linkedPet && analysis.conflicts.length > 0 && (
+            <ProfileConflictNotice
+              conflicts={analysis.conflicts}
+              petName={linkedPet.name}
+              petId={linkedPet.id}
+              analysisId={analysis.analysis_id}
+            />
+          )}
+
           <AnalysisCard analysis={analysis} />
 
           <ProductRecommendationSection analysis={analysis} />

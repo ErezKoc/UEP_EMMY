@@ -60,6 +60,15 @@ function HistoryRow({ item, backTo }: { item: AnalysisHistoryItem; backTo: strin
               otherwise shows the app's own guess as though nobody had disagreed.
             */}
             {item.correction && <Badge variant="primary">Corrected</Badge>}
+            {/*
+              Only the serious ones earn a badge here. A breed disagreement is
+              routine for any mixed-breed rescue, and a list where most rows
+              carry a warning is a list where the warning means nothing - which
+              would cost exactly the species and age rows this is for.
+            */}
+            {item.conflicts.some((conflict) => conflict.severity === "high") && (
+              <Badge variant="warning">Does not match profile</Badge>
+            )}
             {item.triage && (
               <Badge
                 variant={

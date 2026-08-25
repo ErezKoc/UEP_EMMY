@@ -104,6 +104,15 @@ def ensure_compatibility_columns() -> None:
         "notify_lead_days": (
             "ALTER TABLE users ADD COLUMN notify_lead_days INTEGER NOT NULL DEFAULT 1"
         ),
+        # What time of day alerts go out, and the zone that time is in.
+        # 09:00 for existing accounts: it is the hour they would have chosen,
+        # and the alternative - keeping the old behaviour of "whenever the
+        # sweep next woke up" - is the thing being fixed.
+        "notify_time": (
+            "ALTER TABLE users ADD COLUMN notify_time TIME NOT NULL DEFAULT '09:00:00'"
+        ),
+        # NULL means UTC, and the settings page says so rather than guessing.
+        "notify_timezone": "ALTER TABLE users ADD COLUMN notify_timezone VARCHAR(64)",
     }
     comment_columns = {column["name"] for column in inspector.get_columns("comments")}
     comment_additions = {
@@ -142,6 +151,12 @@ def ensure_compatibility_columns() -> None:
             "ALTER TABLE reminders ADD COLUMN recurrence_interval INTEGER NOT NULL DEFAULT 1"
         ),
         "repeat_until": "ALTER TABLE reminders ADD COLUMN repeat_until DATE",
+        # Per-reminder lead time. NULL rather than a copy of the account
+        # default, so changing that default still moves everything which never
+        # asked for something different. `reminder_occurrences` is a new TABLE
+        # and so is created by `create_all`; this is a new COLUMN on an
+        # existing one, which create_all does not touch.
+        "notify_lead_days": "ALTER TABLE reminders ADD COLUMN notify_lead_days INTEGER",
     }
     missing = [
         statement

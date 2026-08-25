@@ -51,6 +51,11 @@ export interface CurrentUser extends User {
   notify_email: boolean;
   /** Days ahead a reminder is announced. 0 means on the day itself. */
   notify_lead_days: number;
+  /** "09:00:00" — the hour alerts go out, on this person's own clock. */
+  notify_time: string;
+  /** IANA zone the hour above is read in. Null means UTC, and the settings
+   *  page says so rather than pretending a preference was honoured. */
+  notify_timezone: string | null;
   suspended_until: string | null;
   moderation_note: string | null;
   /** False while suspended or banned: posting, commenting and reporting are off. */
@@ -105,6 +110,8 @@ export interface ProfileUpdatePayload {
   notify_in_app?: boolean;
   notify_email?: boolean;
   notify_lead_days?: number;
+  notify_time?: string;
+  notify_timezone?: string | null;
 }
 
 export interface AuthResponse {
@@ -221,6 +228,22 @@ export interface Reminder {
    * about when something is due — so the server is the single answer.
    */
   next_occurrence: string | null;
+  /**
+   * The scheduled date behind `next_occurrence` — the two differ only when it
+   * has been snoozed. Every done/snooze call is keyed on THIS one, because the
+   * recurrence rule keeps producing it and a snooze must stay recognisably the
+   * same instance.
+   */
+  next_scheduled_date: string | null;
+  next_is_snoozed: boolean;
+  /** How many days ahead this one is announced. Null means the account default. */
+  notify_lead_days: number | null;
+  /** How many instances have been ticked off. */
+  completed_count: number;
+  /** The most recent tick, by its scheduled date. What "undo" acts on. */
+  last_completed_date: string | null;
+  /** Nothing left to do: a done one-off, or a series past its end date. */
+  is_finished: boolean;
   /** The rule in words: "every 3 months, until 01 Dec 2026". */
   recurrence_description: string;
   notes: string | null;
@@ -230,6 +253,36 @@ export interface Reminder {
   animal: Animal;
 }
 
+/**
+ * One dated instance, as the server resolved it.
+ *
+ * The calendar draws these rather than working the dates out itself. It used
+ * to mirror the recurrence rules in the browser; that was affordable while the
+ * answer was pure arithmetic, and stopped being so once an instance could be
+ * ticked off or pushed back.
+ */
+export interface ReminderOccurrence {
+  reminder_id: string;
+  /** What the rule produced. The identity the done/snooze endpoints take. */
+  scheduled_date: string;
+  /** Where it actually lands — the same, unless it was snoozed. */
+  date: string;
+  done: boolean;
+  snoozed: boolean;
+}
+
+/** Reminders that say exactly the same thing. `keep_id` is the oldest. */
+export interface DuplicateGroup {
+  title: string;
+  reminder_type: ReminderType;
+  due_date: string;
+  animal_id: string;
+  animal_name: string;
+  keep_id: string;
+  duplicate_ids: string[];
+  reminders: Reminder[];
+}
+
 export interface ReminderPayload {
   title: string;
   reminder_type: ReminderType;
@@ -237,6 +290,7 @@ export interface ReminderPayload {
   recurrence: ReminderRecurrence;
   recurrence_interval?: number;
   repeat_until?: string | null;
+  notify_lead_days?: number | null;
   notes?: string | null;
   animal_id: string;
 }
@@ -518,6 +572,32 @@ export interface SymptomCheck {
   animal: Animal | null;
 }
 
+/**
+ * One thing an analysis and the linked pet's profile do not agree about.
+ *
+ * A DISAGREEMENT, not an error, and the wording everywhere follows from that.
+ * Neither side is presumed right: the profile is typed by a person who may
+ * have guessed a rescue's breed, and the model's real-world accuracy has never
+ * been measured. So the panel names what each side claims and offers both ways
+ * out — correct the analysis, or fix the profile.
+ *
+ * Computed by the server on every read, never stored, so it disappears the
+ * moment the owner settles it either way.
+ */
+export interface ProfileConflict {
+  field: "species" | "breed" | "age";
+  /**
+   * "high" changes what other features do, or is too large to be a boundary
+   * case. "low" is worth a look, not a worry.
+   */
+  severity: "high" | "low";
+  profile_says: string;
+  analysis_says: string;
+  message: string;
+  /** True when the analysis's side is the owner's own correction. */
+  from_correction: boolean;
+}
+
 export interface AnalysisResponse {
   analysis_id: string;
   animal_id: string | null;
@@ -526,6 +606,8 @@ export interface AnalysisResponse {
   result: AnalysisResult;
   /** Present only when the owner answered the symptom questions. */
   triage: TriageAssessment | null;
+  /** Empty when no pet is linked — there is nothing to contradict. */
+  conflicts: ProfileConflict[];
 }
 
 /**
@@ -562,6 +644,8 @@ export interface AnalysisHistoryItem {
    */
   correction: AnalysisCorrection | null;
   corrected_at: string | null;
+  /** Recomputed on every read against the profile as it is right now. */
+  conflicts: ProfileConflict[];
 }
 
 export interface AnalysisDetail extends AnalysisHistoryItem {

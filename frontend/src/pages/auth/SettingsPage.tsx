@@ -67,6 +67,17 @@ function SettingsContent({ user }: { user: CurrentUser }) {
   const [notifyInApp, setNotifyInApp] = useState(user.notify_in_app ?? true);
   const [notifyEmail, setNotifyEmail] = useState(user.notify_email ?? true);
   const [leadDays, setLeadDays] = useState(user.notify_lead_days ?? 1);
+  // "09:00:00" from the server; an <input type="time"> wants "09:00".
+  const [notifyTime, setNotifyTime] = useState((user.notify_time ?? "09:00:00").slice(0, 5));
+  /*
+   * The browser knows its own zone; the server cannot guess it.
+   *
+   * Without one, "09:00" is read in UTC, which is the middle of the night for
+   * a good half of the people using this. Offered as a one-click fix rather
+   * than a dropdown of six hundred zone names, and the current state is said
+   * out loud so nobody believes a preference was honoured that never was.
+   */
+  const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   /*
    * Saved on change rather than behind a Save button. Every control here is a
@@ -77,6 +88,8 @@ function SettingsContent({ user }: { user: CurrentUser }) {
     notify_in_app?: boolean;
     notify_email?: boolean;
     notify_lead_days?: number;
+    notify_time?: string;
+    notify_timezone?: string | null;
   }) => {
     if (changes.notify_in_app !== undefined) setNotifyInApp(changes.notify_in_app);
     if (changes.notify_email !== undefined) setNotifyEmail(changes.notify_email);
@@ -89,6 +102,7 @@ function SettingsContent({ user }: { user: CurrentUser }) {
       setNotifyInApp(user.notify_in_app ?? true);
       setNotifyEmail(user.notify_email ?? true);
       setLeadDays(user.notify_lead_days ?? 1);
+      setNotifyTime((user.notify_time ?? "09:00:00").slice(0, 5));
     }
   };
 
@@ -168,8 +182,47 @@ function SettingsContent({ user }: { user: CurrentUser }) {
             />
             <p className="mt-1 text-xs text-slate-500">
               0 means on the day itself. Repeating reminders are announced once per occurrence,
-              never twice for the same one.
+              never twice for the same one. Any single reminder can override this on the
+              calendar page — a booster is worth a week&apos;s warning, tonight&apos;s tablet is
+              not.
             </p>
+          </div>
+
+          <div>
+            <label htmlFor="notify-time" className="block text-sm font-medium text-slate-700">
+              Send them at
+            </label>
+            <input
+              id="notify-time"
+              type="time"
+              value={notifyTime}
+              onChange={(event) => setNotifyTime(event.target.value)}
+              onBlur={() =>
+                void saveNotifications({ notify_time: `${notifyTime}:00` })
+              }
+              className="mt-1 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              {user.notify_timezone ? (
+                <>
+                  Read in <span className="font-medium">{user.notify_timezone}</span>.
+                </>
+              ) : (
+                <>
+                  Read in <span className="font-medium">UTC</span>, because you have not told us
+                  where you are — so this may not be the hour you meant.
+                </>
+              )}
+            </p>
+            {user.notify_timezone !== browserZone && (
+              <button
+                type="button"
+                onClick={() => void saveNotifications({ notify_timezone: browserZone })}
+                className="mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700"
+              >
+                Use this device&apos;s timezone ({browserZone})
+              </button>
+            )}
           </div>
 
           {/*

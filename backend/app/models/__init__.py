@@ -13,7 +13,7 @@ from app.models.post import Comment, CommentVote, Post
 from app.models.symptom_check import SymptomCheck
 from app.models.user import AccountStatus, User, UserRole, VerificationStatus
 from app.models.verification import VetVerification
-from app.reminder import Recurrence, Reminder, ReminderType
+from app.reminder import Recurrence, Reminder, ReminderOccurrence, ReminderType
 
 __all__ = [
     "AIAnalysisLog",
@@ -40,5 +40,6 @@ __all__ = [
     "VetVerification",
     "Recurrence",
     "Reminder",
+    "ReminderOccurrence",
     "ReminderType",
 ]

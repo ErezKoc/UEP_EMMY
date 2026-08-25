@@ -8,7 +8,8 @@ one place rather than being remembered correctly at four call sites.
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.models import Reminder, User
 from app.models.notification import Notification, NotificationKind
 from app.services.email import get_email_sender
-from app.services.recurrence import describe, next_occurrence
+from app.services.recurrence import describe, next_pending_occurrence
 
 logger = logging.getLogger(__name__)
 
@@ -78,15 +79,55 @@ def notify(
     return notification
 
 
-def due_reminder_notifications(db: Session, *, today: date | None = None) -> int:
-    """Announce every reminder falling due inside each owner's lead time.
+def local_now(user: User, *, moment: datetime | None = None) -> datetime:
+    """The wall clock where this person is.
+
+    Falls back to UTC when they have not told us a zone, which is honest rather
+    than clever: a guess based on the server's own location would put somebody's
+    "09:00" at whatever hour our host happens to sit in, and they would have no
+    way to tell that from a bug.
+    """
+    moment = moment or datetime.now(timezone.utc)
+    if not user.notify_timezone:
+        return moment.astimezone(timezone.utc)
+    try:
+        return moment.astimezone(ZoneInfo(user.notify_timezone))
+    except (ZoneInfoNotFoundError, ValueError):
+        # A zone the platform does not recognise - an old browser string, or a
+        # tzdata package missing from the image. Silence is the wrong failure
+        # here: better a reminder at the wrong hour than no reminder.
+        logger.warning("Unknown timezone %r; using UTC.", user.notify_timezone)
+        return moment.astimezone(timezone.utc)
+
+
+def _is_past_sending_time(user: User, *, moment: datetime | None = None) -> bool:
+    """Has this person's chosen hour arrived where they are?
+
+    The sweep runs every few minutes and used to announce whenever it happened
+    to wake up next, which for anybody with email switched on meant a message
+    at 03:14. Nobody acts on a reminder at 03:14 - they wake to it already read.
+
+    Only the hour is gated, not the day: once it is past, every eligible
+    reminder goes out on that pass, and the dedupe key stops it repeating on
+    the next one.
+    """
+    return local_now(user, moment=moment).time() >= user.notify_time
+
+
+def due_reminder_notifications(
+    db: Session, *, today: date | None = None, moment: datetime | None = None
+) -> int:
+    """Announce every reminder falling due inside its lead time.
 
     Returns how many were created, which is what the scheduler logs.
 
-    The dedupe key carries the OCCURRENCE date, not just the reminder id. A
-    reminder repeating every week is a different event each week and should be
-    announced each week; the same week's occurrence must only ever be announced
-    once, however many times this function runs.
+    The dedupe key carries the date the reminder LANDS on, not just the
+    reminder id. A reminder repeating every week is a different event each week
+    and should be announced each week; the same week's occurrence must only
+    ever be announced once, however many times this function runs. Keying on
+    the landing date rather than the scheduled one is also what makes a snooze
+    work as an alarm clock: pushed from Tuesday to Friday, it is a new key and
+    speaks again on the Friday.
     """
     today = today or date.today()
     created = 0
@@ -96,11 +137,24 @@ def due_reminder_notifications(db: Session, *, today: date | None = None) -> int
         owner = db.get(User, reminder.owner_id)
         if owner is None or not (owner.notify_in_app or owner.notify_email):
             continue
-
-        lead = max(0, owner.notify_lead_days)
-        occurrence = next_occurrence(reminder, today)
-        if occurrence is None or occurrence > today + timedelta(days=lead):
+        if not _is_past_sending_time(owner, moment=moment):
             continue
+
+        # The reminder's own lead time wins where it has one. A rabies booster
+        # needs a week because it needs an appointment; tonight's tablet needs
+        # none, because there is nothing to arrange.
+        lead = max(
+            0,
+            reminder.notify_lead_days
+            if reminder.notify_lead_days is not None
+            else owner.notify_lead_days,
+        )
+        upcoming = next_pending_occurrence(reminder, today)
+        # `None` here means done or finished - the owner has already dealt with
+        # it, and an alert would be telling them to do a thing they did.
+        if upcoming is None or upcoming.date > today + timedelta(days=lead):
+            continue
+        occurrence = upcoming.date
 
         pet = reminder.animal.name if reminder.animal else "your pet"
         days_away = (occurrence - today).days
@@ -115,6 +169,13 @@ def due_reminder_notifications(db: Session, *, today: date | None = None) -> int
         body = (
             f"{reminder.title} for {pet} is due {when} "
             f"({occurrence:%d %b %Y})."
+            # Said out loud, because otherwise a snoozed reminder speaking up on
+            # a date the calendar rule never produces reads as a bug.
+            + (
+                f" You snoozed this one from {upcoming.scheduled_date:%d %b %Y}."
+                if upcoming.snoozed
+                else ""
+            )
             + (f" This reminder repeats {repeat}." if repeat != "does not repeat" else "")
         )
 

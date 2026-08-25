@@ -365,6 +365,84 @@ export async function getEmergencyContacts(): Promise<
   return parseResponse<import("../types").EmergencyContacts>(response);
 }
 
+/** Every dated instance the calendar has to draw in [start, end]. */
+export async function getReminderOccurrences(
+  start: string,
+  end: string,
+  animalId?: string,
+): Promise<import("../types").ReminderOccurrence[]> {
+  const params = new URLSearchParams({ start, end });
+  if (animalId) params.set("animal_id", animalId);
+  const response = await apiFetch(`${API_BASE}/reminders/occurrences?${params}`, {
+    headers: authHeaders(),
+  });
+  return parseResponse<import("../types").ReminderOccurrence[]>(response);
+}
+
+/*
+ * Done and snooze are keyed on the SCHEDULED date, never the date the instance
+ * currently sits on. A snoozed instance still answers to the day the rule gave
+ * it, which is also the day the rule will keep giving it.
+ */
+export function completeOccurrence(
+  reminderId: string,
+  scheduled: string,
+): Promise<Reminder> {
+  return requestJson<Reminder>(
+    `/reminders/${reminderId}/occurrences/${scheduled}/complete`,
+    "POST",
+  );
+}
+
+export function uncompleteOccurrence(
+  reminderId: string,
+  scheduled: string,
+): Promise<Reminder> {
+  return requestJson<Reminder>(
+    `/reminders/${reminderId}/occurrences/${scheduled}/complete`,
+    "DELETE",
+  );
+}
+
+export function snoozeOccurrence(
+  reminderId: string,
+  scheduled: string,
+  by: { days?: number; until?: string },
+): Promise<Reminder> {
+  return requestJson<Reminder>(
+    `/reminders/${reminderId}/occurrences/${scheduled}/snooze`,
+    "POST",
+    by,
+  );
+}
+
+export function unsnoozeOccurrence(
+  reminderId: string,
+  scheduled: string,
+): Promise<Reminder> {
+  return requestJson<Reminder>(
+    `/reminders/${reminderId}/occurrences/${scheduled}/snooze`,
+    "DELETE",
+  );
+}
+
+/** Reminders that say exactly the same thing as another one. */
+export async function getDuplicateReminders(): Promise<
+  import("../types").DuplicateGroup[]
+> {
+  const response = await apiFetch(`${API_BASE}/reminders/duplicates`, {
+    headers: authHeaders(),
+  });
+  return parseResponse<import("../types").DuplicateGroup[]>(response);
+}
+
+/** Delete the named copies. The server re-checks each one really is a copy. */
+export function resolveDuplicateReminders(deleteIds: string[]): Promise<Reminder[]> {
+  return requestJson<Reminder[]>("/reminders/duplicates/resolve", "POST", {
+    delete_ids: deleteIds,
+  });
+}
+
 // ----------------------------------------------------------- appointments
 
 export async function getAppointments(openOnly = false): Promise<

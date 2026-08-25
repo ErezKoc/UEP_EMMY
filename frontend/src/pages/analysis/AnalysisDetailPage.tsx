@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError, getAnalysis } from "../../api/client";
 import AnalysisCard from "../../components/AnalysisCard";
+import ProfileConflictNotice from "../../components/ProfileConflictNotice";
 import AnalysisControls from "../../components/AnalysisControls";
 import TriageResultCard from "../../components/TriageResultCard";
 import { ArrowLeftIcon, Badge, Button, Card, Spinner } from "../../components/ui";
@@ -110,6 +111,7 @@ export default function AnalysisDetailPage() {
         created_at: analysis.created_at,
         result: analysis.result,
         triage: analysis.triage,
+        conflicts: analysis.conflicts,
       }
     : null;
 
@@ -252,11 +254,48 @@ export default function AnalysisDetailPage() {
             </div>
           </section>
 
+          {/*
+            Above the result, not below it. A reader who has already taken in
+            "Beagle" and moved on will not go back for a caveat printed
+            underneath, and the whole point of this panel is that it is read
+            before the number is believed.
+          */}
+          {analysis.animal && analysis.conflicts.length > 0 && (
+            <ProfileConflictNotice
+              conflicts={analysis.conflicts}
+              petName={analysis.animal.name}
+              petId={analysis.animal.id}
+              onCorrect={() => {
+                const controls = document.getElementById("analysis-controls");
+                if (!controls) return;
+                /*
+                 * No `behavior: "smooth"`, and focus as well as scroll.
+                 *
+                 * Smooth scrolling is silently a no-op in some environments -
+                 * headless Chrome and several embedded webviews - so the
+                 * button did nothing at all when tested, with no error to
+                 * explain it. The default jump works everywhere.
+                 *
+                 * The focus matters more than the scroll: this control says
+                 * "correct this analysis", and somebody using a keyboard or a
+                 * screen reader needs the caret to arrive there too, not just
+                 * the viewport.
+                 */
+                controls.scrollIntoView({ block: "start" });
+                controls.focus();
+              }}
+            />
+          )}
+
           {analysis.triage && <TriageResultCard triage={analysis.triage} />}
           <AnalysisCard analysis={analysisResponse} />
           {analysis.intake && <IntakeDetails intake={analysis.intake} />}
 
-          <AnalysisControls analysis={analysis} onChanged={setAnalysis} />
+          {/* `tabIndex={-1}` so the notice above can move focus here without
+              putting the wrapper into the tab order for everybody else. */}
+          <div id="analysis-controls" tabIndex={-1} className="scroll-mt-20 outline-none">
+            <AnalysisControls analysis={analysis} onChanged={setAnalysis} />
+          </div>
         </div>
       )}
     </div>

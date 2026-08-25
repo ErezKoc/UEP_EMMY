@@ -1,9 +1,9 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Uuid
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, Time, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -104,7 +104,26 @@ class User(Base):
     notify_in_app: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     notify_email: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     #: How many days ahead a reminder is announced. 0 means "on the day".
+    #: A per-reminder override lives on the reminder itself; this is the
+    #: fallback for everything that has not asked for something different.
     notify_lead_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    #: What time of day to send them.
+    #:
+    #: The sweep runs every few minutes and used to announce whenever it next
+    #: happened to wake up, which for anybody with email on meant a message at
+    #: 03:14. Nobody acts on a reminder at 03:14; they wake up to it already
+    #: read and it is gone.
+    notify_time: Mapped[time] = mapped_column(
+        Time, default=time(9, 0), server_default="09:00:00"
+    )
+    #: The IANA zone that time is in ("Europe/Istanbul"), or NULL for UTC.
+    #:
+    #: Stored rather than inferred, because a time of day is meaningless
+    #: without one: 09:00 on a server in UTC is the middle of the night for
+    #: half the people using it. The browser knows its own zone and offers it;
+    #: NULL falls back to UTC and the settings page says so rather than
+    #: pretending a preference was honoured.
+    notify_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     verification_status: Mapped[VerificationStatus] = mapped_column(
         Enum(
             VerificationStatus,

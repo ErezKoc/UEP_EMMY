@@ -17,14 +17,37 @@ from app.schemas import (
     AnalysisResult,
     AnalysisUpdate,
 )
+from app.schemas.analysis import ProfileConflictRead
 from app.schemas.triage import SymptomIntake, TriageAssessment
 from app.services.ai import ImageAnalysisService, get_analysis_service
+from app.services.profile_match import find_conflicts
 from app.services.storage import StorageService, get_storage_service
 from app.services.triage import TriageEngine, get_triage_engine
 
 router = APIRouter()
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _conflicts(analysis: AIAnalysisLog) -> list[ProfileConflictRead]:
+    """Where this analysis and its pet's profile disagree, as of right now.
+
+    Recomputed on every read rather than stored with the row. The profile is
+    editable and the analysis is correctable, so a stored answer would keep
+    warning about a disagreement the owner had already settled - and a warning
+    that outlives its fix is one people learn to click past.
+    """
+    return [
+        ProfileConflictRead(**vars(conflict))
+        for conflict in find_conflicts(analysis.animal, analysis.result, analysis.correction)
+    ]
+
+
+def _detail(analysis: AIAnalysisLog) -> AnalysisDetail:
+    data = AnalysisDetail.model_validate(analysis)
+    data.conflicts = _conflicts(analysis)
+    return data
+
 
 
 def _owned_analysis(db: Session, analysis_id: uuid.UUID, user: User) -> AIAnalysisLog:
@@ -154,6 +177,12 @@ async def upload_and_analyze(
         created_at=log.created_at,
         result=result,
         triage=assessment,
+        # Checked at the moment of upload, not left for the owner to notice on
+        # a later page. This is the one screen they are certain to look at.
+        conflicts=[
+            ProfileConflictRead(**vars(conflict))
+            for conflict in find_conflicts(animal, log.result, None)
+        ],
     )
 
 
@@ -164,7 +193,7 @@ def list_analyses(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[AIAnalysisLog]:
+) -> list[AnalysisHistoryItem]:
     """The signed-in user's past analyses, newest first, optionally per pet."""
     statement = (
         select(AIAnalysisLog)
@@ -176,7 +205,8 @@ def list_analyses(
     )
     if animal_id is not None:
         statement = statement.where(AIAnalysisLog.animal_id == animal_id)
-    return list(db.scalars(statement).all())
+    rows = list(db.scalars(statement).all())
+    return [_detail(row) for row in rows]
 
 
 @router.get("/{analysis_id}", response_model=AnalysisDetail)
@@ -184,7 +214,7 @@ def get_analysis(
     analysis_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> AIAnalysisLog:
+) -> AnalysisDetail:
     """Return one complete analysis belonging to the signed-in user."""
     statement = (
         select(AIAnalysisLog)
@@ -200,7 +230,7 @@ def get_analysis(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Analysis {analysis_id} not found.",
         )
-    return analysis
+    return _detail(analysis)
 
 
 @router.patch("/{analysis_id}", response_model=AnalysisDetail)
@@ -209,7 +239,7 @@ def update_analysis(
     payload: AnalysisUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> AIAnalysisLog:
+) -> AnalysisDetail:
     """Correct what the model got wrong, and move the analysis to another pet.
 
     Corrections never touch `result`. The model's output is kept exactly as it
@@ -273,7 +303,9 @@ def update_analysis(
 
     db.commit()
     db.refresh(analysis)
-    return analysis
+    # Recomputed after the change, so a correction that settles a disagreement
+    # clears its warning in the same response that saved it.
+    return _detail(analysis)
 
 
 @router.delete("/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)

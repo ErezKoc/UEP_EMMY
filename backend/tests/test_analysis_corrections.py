@@ -100,6 +100,18 @@ def analysis(session, owner, buddy):
     return log
 
 
+def stored(session, analysis_id) -> AIAnalysisLog:
+    """The row as it was actually saved.
+
+    `update_analysis` returns the response schema now that it also carries the
+    profile conflicts, so the endpoint's return value is no longer the ORM
+    object. These tests are about what reaches the database, so they ask the
+    database.
+    """
+    session.expire_all()
+    return session.get(AIAnalysisLog, analysis_id)
+
+
 # ---------------------------------------------------------------- correcting
 
 
@@ -112,12 +124,14 @@ def test_a_correction_never_rewrites_what_the_model_said(session, owner, analysi
         current_user=owner,
     )
 
-    assert updated.correction == {"breed": "Basset Hound"}
+    assert updated.correction is not None and updated.correction.breed == "Basset Hound"
+    row = stored(session, analysis.id)
+    assert row.correction == {"breed": "Basset Hound"}
     # Untouched, in every field.
-    assert updated.result == MODEL_RESULT
-    assert updated.result["breed_candidates"][0]["breed"] == "Beagle"
-    assert updated.species == "dog"
-    assert updated.corrected_at is not None
+    assert row.result == MODEL_RESULT
+    assert row.result["breed_candidates"][0]["breed"] == "Beagle"
+    assert row.species == "dog"
+    assert row.corrected_at is not None
 
 
 def test_corrections_accumulate_rather_than_replacing_each_other(session, owner, analysis):
@@ -135,7 +149,7 @@ def test_corrections_accumulate_rather_than_replacing_each_other(session, owner,
         current_user=owner,
     )
 
-    assert updated.correction == {"species": "cat", "breed": "Maine Coon"}
+    assert stored(session, analysis.id).correction == {"species": "cat", "breed": "Maine Coon"}
 
 
 def test_one_field_can_be_handed_back_to_the_model(session, owner, analysis):
@@ -152,7 +166,7 @@ def test_one_field_can_be_handed_back_to_the_model(session, owner, analysis):
         current_user=owner,
     )
 
-    assert updated.correction == {"species": "cat"}
+    assert stored(session, analysis.id).correction == {"species": "cat"}
 
 
 def test_withdrawing_the_whole_correction_clears_the_timestamp_too(session, owner, analysis):
@@ -192,7 +206,7 @@ def test_the_age_category_is_stored_as_its_value_not_the_enum(session, owner, an
         current_user=owner,
     )
 
-    assert updated.correction == {"age_category": "senior"}
+    assert stored(session, analysis.id).correction == {"age_category": "senior"}
 
 
 # ----------------------------------------------------------------- relinking
@@ -203,7 +217,7 @@ def test_an_analysis_can_be_moved_to_another_pet(session, owner, analysis, mitte
         analysis.id, AnalysisUpdate(animal_id=mittens.id), db=session, current_user=owner
     )
 
-    assert updated.animal_id == mittens.id
+    assert stored(session, analysis.id).animal_id == mittens.id
 
 
 def test_an_analysis_can_be_unlinked(session, owner, analysis):
@@ -211,7 +225,7 @@ def test_an_analysis_can_be_unlinked(session, owner, analysis):
         analysis.id, AnalysisUpdate(animal_id=None), db=session, current_user=owner
     )
 
-    assert updated.animal_id is None
+    assert stored(session, analysis.id).animal_id is None
 
 
 def test_omitting_the_link_leaves_it_alone(session, owner, analysis, buddy):
@@ -227,7 +241,7 @@ def test_omitting_the_link_leaves_it_alone(session, owner, analysis, buddy):
         current_user=owner,
     )
 
-    assert updated.animal_id == buddy.id
+    assert stored(session, analysis.id).animal_id == buddy.id
 
 
 def test_it_cannot_be_relinked_to_someone_elses_pet(session, owner, analysis):
