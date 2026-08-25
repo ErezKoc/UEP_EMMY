@@ -315,10 +315,27 @@ def test_the_form_and_the_engine_screen_for_the_same_emergencies():
         pytest.skip("frontend/ is not present in this checkout")
 
     asked: set[str] = set()
-    for name in ("URGENT_SIGNS", "ACCIDENTS"):
-        match = re.search(rf"const {name}: RedFlag\[\] = \[(.*?)\];", source, re.DOTALL)
-        assert match, f"Could not find {name} in SymptomIntakeForm.tsx; the check is now blind."
-        asked |= set(re.findall(r'"([a-z_]+)"', match.group(1)))
+
+    # The urgent signs are declared as named GROUPS now - twelve identical
+    # chips in one column was the form's most-complained-about screen. The
+    # grouping is a UI decision; this reads whichever flags end up inside it,
+    # so regrouping is free and adding a thirteenth is not.
+    groups = re.search(
+        r"const URGENT_SIGN_GROUPS: Array<\{ label: string; signs: RedFlag\[\] \}> = \[(.*?)\n\];",
+        source,
+        re.DOTALL,
+    )
+    assert groups, (
+        "Could not find URGENT_SIGN_GROUPS in SymptomIntakeForm.tsx; the check is now blind."
+    )
+    # Only the signs, not the group labels: labels are prose and would other-
+    # wise arrive here as fake flag names.
+    for block in re.findall(r"signs: \[(.*?)\]", groups.group(1), re.DOTALL):
+        asked |= set(re.findall(r'"([a-z_]+)"', block))
+
+    accidents = re.search(r"const ACCIDENTS: RedFlag\[\] = \[(.*?)\];", source, re.DOTALL)
+    assert accidents, "Could not find ACCIDENTS in SymptomIntakeForm.tsx; the check is now blind."
+    asked |= set(re.findall(r'"([a-z_]+)"', accidents.group(1)))
 
     declared = {flag.value for flag in EMERGENCY_SCREENING_FLAGS}
     assert asked == declared, (

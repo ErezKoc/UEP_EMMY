@@ -35,7 +35,7 @@ import type {
  * carries its own follow-up list for the same reason, drawn from the signs its
  * sources actually name.
  *
- * WHY THIS IS FOUR STEPS AND NOT ONE PAGE. It used to be one page, which had
+ * WHY THIS IS STEPS AND NOT ONE PAGE. It used to be one page, which had
  * two problems that mattered more than the scrolling. The emergency screen
  * could be walked straight past without answering it, so "you reported none of
  * the emergency warning signs" was printed on results where the owner had
@@ -60,27 +60,52 @@ const CONCERNS: Array<{ value: Concern; label: string }> = [
 
 
 /*
- * Grouped so the most serious signs are read first, not buried in a list.
+ * The emergency signs, in named groups of two to four.
  *
- * The membership of this list and of ACCIDENTS below is checked against the
- * backend's EMERGENCY_SCREENING declaration by
- * `test_the_form_and_the_engine_screen_for_the_same_emergencies`. Labels and
- * ordering are ours; WHICH triggers exist is not.
+ * Twelve identical chips in one column is the single most complained-about
+ * thing on this form, and the complaint is not only that it is unpleasant. A
+ * frightened person scanning a flat wall of catastrophes stops reading part
+ * way down, and the signs they stop before are the ones they were least likely
+ * to recognise as serious on their own - pale gums, a bloated belly with
+ * retching. Somebody whose dog has collapsed does not need this list; somebody
+ * whose dog has pale gums does, and they are the reader it was losing.
+ *
+ * So: same twelve signs, nothing hidden behind a "show more", grouped by where
+ * on the animal you would notice them. Four short lists read as four things
+ * rather than twelve, and each one can be checked against the animal in front
+ * of you.
+ *
+ * NOTHING may be added or removed here without the backend agreeing. The
+ * membership of these groups and of ACCIDENTS below is checked against
+ * EMERGENCY_SCREENING by
+ * `test_the_form_and_the_engine_screen_for_the_same_emergencies`. Labels,
+ * grouping and ordering are ours; WHICH triggers exist is not.
  */
-const URGENT_SIGNS: RedFlag[] = [
-  "trouble_breathing",
-  "rapid_breathing_at_rest",
-  "collapse_or_unresponsive",
-  "pale_gums",
-  "seizure",
-  "uncontrolled_bleeding",
-  "severe_pain",
-  "unable_to_urinate",
-  "bloated_abdomen_with_retching",
-  "blood_in_vomit_or_stool",
-  "eye_injury",
-  "limb_cannot_move",
+const URGENT_SIGN_GROUPS: Array<{ label: string; signs: RedFlag[] }> = [
+  {
+    label: "Breathing",
+    signs: ["trouble_breathing", "rapid_breathing_at_rest"],
+  },
+  {
+    label: "How they seem in themselves",
+    signs: ["collapse_or_unresponsive", "seizure", "severe_pain", "pale_gums"],
+  },
+  {
+    label: "Bleeding or injury",
+    signs: ["uncontrolled_bleeding", "blood_in_vomit_or_stool", "eye_injury", "limb_cannot_move"],
+  },
+  {
+    label: "Belly and toilet",
+    signs: ["bloated_abdomen_with_retching", "unable_to_urinate"],
+  },
 ];
+
+/*
+ * Derived, never typed twice. A second hand-maintained copy of these twelve is
+ * exactly the drift the safety test above exists to catch, and the cheapest way
+ * to never have that drift is to not have the second copy.
+ */
+const URGENT_SIGNS: RedFlag[] = URGENT_SIGN_GROUPS.flatMap((group) => group.signs);
 
 /** Accidents get their own question — owners think in events, not symptoms. */
 const ACCIDENTS: RedFlag[] = [
@@ -337,24 +362,34 @@ const SPECIES_OPTIONS: Array<{ value: string; label: string }> = [
 
 // ---------------------------------------------------------------- the steps
 
-type StepId = "identity" | "concern" | "emergency" | "details";
+type StepId = "about" | "emergency" | "details";
 
-const STEPS: StepId[] = ["identity", "concern", "emergency", "details"];
+/*
+ * Three steps, down from four.
+ *
+ * "Who is this about?" and "What is the main concern?" were a dropdown and two
+ * chip rows, then nine chips - each barely half a screen, and each costing a
+ * Continue, a page transition and a step out of the progress bar. Somebody
+ * worried about their animal counted four steps before the form had asked them
+ * anything about the animal. They are one screen now; the questions and the
+ * validation are unchanged.
+ *
+ * The emergency step stays separate, and that is not negotiable. It is its own
+ * required step so it cannot be walked past unanswered, and so no other
+ * question repeats one of its signs as an ordinary tick-box.
+ */
+const STEPS: StepId[] = ["about", "emergency", "details"];
 
 const STEP_HEADINGS: Record<StepId, { title: string; description: string }> = {
-  identity: {
-    title: "Who is this about?",
+  about: {
+    title: "About your pet",
     description:
       "Some of our guidance applies only to dogs, and some only to cats, so we ask before answering.",
-  },
-  concern: {
-    title: "What is the main concern?",
-    description: "Pick the one that fits best. You can add anything else in a moment.",
   },
   emergency: {
     title: "Is any of this happening right now?",
     description:
-      "These need emergency care whatever else is going on, so we ask everyone. Please answer even if the answer is no.",
+      "These need emergency care whatever else is going on, so we ask everyone. Most people tick none of them.",
   },
   details: {
     title: "A little more about the problem",
@@ -364,7 +399,13 @@ const STEP_HEADINGS: Record<StepId, { title: string; description: string }> = {
 };
 
 /** Which answer each step will not let you past. */
-type FieldId = StepId;
+/*
+ * Which question an error belongs to, which is no longer the same thing as
+ * which step it is on: the "about" step asks two, and they fail separately.
+ * Keying errors by step would make answering the species clear the message
+ * under the concern.
+ */
+type FieldId = "identity" | "concern" | "emergency";
 
 // ------------------------------------------------------------------ draft
 
@@ -594,7 +635,19 @@ export default function SymptomIntakeForm({
 }: SymptomIntakeFormProps) {
   const draft = useRef<Partial<IntakeDraft> | null>(readDraft()).current;
 
-  const [step, setStep] = useState<StepId>(draft?.step ?? "identity");
+  /*
+   * A restored step is checked against the current list, not trusted.
+   *
+   * Drafts are written to sessionStorage with whatever step ids existed when
+   * they were saved, and "identity" and "concern" were two of them until the
+   * first two steps merged. A draft naming one of those would set `step` to a
+   * value no branch below renders and no entry in STEPS matches - a blank card
+   * with a broken progress bar, and no way out except clearing storage. Falling
+   * back to the first step loses nothing: every answer is stored separately.
+   */
+  const [step, setStep] = useState<StepId>(
+    draft?.step && STEPS.includes(draft.step) ? draft.step : "about",
+  );
   const [concern, setConcern] = useState<Concern | null>(draft?.concern ?? null);
   const [bodyArea, setBodyArea] = useState<BodyArea | null>(draft?.bodyArea ?? null);
   const [duration, setDuration] = useState<Duration | null>(draft?.duration ?? null);
@@ -771,21 +824,28 @@ export default function SymptomIntakeForm({
     ));
 
   const validate = (target: StepId): boolean => {
-    if (target === "identity" && !selectedPet && !species) {
-      setErrors((current) => ({
-        ...current,
-        identity: "Tell us whether this is a dog or a cat — some guidance applies to only one.",
-      }));
-      focusGroup(identityRef.current);
-      return false;
-    }
-    if (target === "concern" && !concern) {
-      setErrors((current) => ({
-        ...current,
-        concern: "Choose the main concern so we know which questions to ask.",
-      }));
-      focusGroup(concernRef.current);
-      return false;
+    if (target === "about") {
+      // Species first, because it is the question higher up the page - sending
+      // somebody to the second unanswered question while the first is also
+      // unanswered makes the form look like it is moving the goalposts.
+      if (!selectedPet && !species) {
+        setErrors((current) => ({
+          ...current,
+          identity: "Tell us whether this is a dog or a cat — some guidance applies to only one.",
+        }));
+        focusGroup(identityRef.current);
+        return false;
+      }
+      if (!concern) {
+        setErrors((current) => ({
+          ...current,
+          concern: "Choose the main concern so we know which questions to ask.",
+        }));
+        focusGroup(concernRef.current);
+        return false;
+      }
+      setErrors((current) => ({ ...current, identity: undefined, concern: undefined }));
+      return true;
     }
     if (target === "emergency" && emergencyAnswer === null) {
       setErrors((current) => ({
@@ -855,7 +915,7 @@ export default function SymptomIntakeForm({
    * The species CHIPS only offer dog and cat, so this can only be reached by
    * picking a saved rabbit or bird from the dropdown above them — and until
    * now that was allowed straight through to the end, where the engine
-   * abstained and the owner had answered four steps for nothing.
+   * abstained and the owner had answered every step for nothing.
    *
    * Checked here rather than in `validate` because there is no answer that
    * would fix it. Validation exists to tell somebody what to change; this
@@ -878,7 +938,7 @@ export default function SymptomIntakeForm({
       <p className="mt-1 text-sm text-slate-500">{heading.description}</p>
 
       <div className="mt-5 space-y-5">
-        {step === "identity" && (
+        {step === "about" && (
           <>
             {pets.length > 0 && (
               <div className="border-b border-slate-100 pb-4">
@@ -966,7 +1026,7 @@ export default function SymptomIntakeForm({
           </>
         )}
 
-        {step === "concern" && (
+        {step === "about" && (
           <Question
             label="What brings you here?"
             hint="Whichever is closest. Nothing here is a diagnosis."
@@ -990,22 +1050,38 @@ export default function SymptomIntakeForm({
 
         {step === "emergency" && (
           <>
+            {/*
+              The groups carry the label; the outer Question carries the error
+              and the focus target, so a validation failure still lands on the
+              whole set rather than on whichever group happens to be first.
+            */}
             <Question
               label="Is your pet showing any of these right now?"
-              hint="Tap all that apply."
+              hint="Tap all that apply. Nothing here is a diagnosis — these are the signs that mean go now rather than wait."
               error={errors.emergency}
               groupRef={emergencyRef}
             >
-              {URGENT_SIGNS.map((sign) => (
-                <Chip
-                  key={sign}
-                  tone="urgent"
-                  selected={redFlags.includes(sign)}
-                  onClick={() => toggleEmergencyFlag(sign)}
-                >
-                  {SIGN_LABELS[sign] ?? sign}
-                </Chip>
-              ))}
+              <div className="w-full space-y-4">
+                {URGENT_SIGN_GROUPS.map((group) => (
+                  <div key={group.label}>
+                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {group.label}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {group.signs.map((sign) => (
+                        <Chip
+                          key={sign}
+                          tone="urgent"
+                          selected={redFlags.includes(sign)}
+                          onClick={() => toggleEmergencyFlag(sign)}
+                        >
+                          {SIGN_LABELS[sign] ?? sign}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </Question>
 
             <Question
@@ -1024,11 +1100,39 @@ export default function SymptomIntakeForm({
               ))}
             </Question>
 
-            <Question label="Or, if none of the above apply:">
-              <Chip tone="none" selected={emergencyAnswer === "none"} onClick={chooseNoEmergency}>
-                None of these
-              </Chip>
-            </Question>
+            {/*
+              Kept at the bottom, deliberately, and this is the one place the
+              form chooses the slower option on purpose.
+              
+              Putting "None of these" at the top would make the screen far less
+              daunting and would be the wrong trade: the reader this list exists
+              for is the one who has not realised that pale gums or a bloated
+              belly are emergencies, and they are exactly the reader who would
+              press a "no" button placed before the question. Answering first is
+              the point of the screen.
+
+              What it does get is prominence once reached - full width and its
+              own colour, rather than a thirteenth chip that looks like the
+              twelve above it.
+            */}
+            {!reportedEmergency && (
+              <div className="border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={chooseNoEmergency}
+                  aria-pressed={emergencyAnswer === "none"}
+                  className={`w-full rounded-xl border-2 px-4 py-3 text-sm font-semibold transition ${
+                    emergencyAnswer === "none"
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-900"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50/40"
+                  }`}
+                >
+                  {emergencyAnswer === "none"
+                    ? "✓ None of these — my pet has none of the signs above"
+                    : "None of these"}
+                </button>
+              </div>
+            )}
 
             {/*
               The whole reason this step is separate. An owner who has just
@@ -1249,7 +1353,7 @@ export default function SymptomIntakeForm({
       )}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-        {step === "identity" ? (
+        {step === "about" ? (
           <span />
         ) : (
           <Button
