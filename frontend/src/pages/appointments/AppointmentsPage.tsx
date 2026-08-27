@@ -7,6 +7,7 @@ import {
   getAppointmentMessages,
   getAppointments,
   proposeReschedule,
+  addAppointmentNote,
   respondToAppointment,
   respondToReschedule,
   sendAppointmentMessage,
@@ -215,6 +216,7 @@ function AppointmentRow({
   const { toast } = useToast();
   const [replyOpen, setReplyOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Which side of this appointment is reading it. An account can be both the
@@ -382,6 +384,19 @@ function AppointmentRow({
             Suggest a new time
           </Button>
         )}
+        {/*
+          Adding to the record after the answer has gone. The note on the
+          answer dialog can only ever be written at the moment of answering,
+          which left "bring the previous blood results" and "the swelling has
+          gone down" with nowhere to go but the message thread - a conversation
+          rather than something the owner can come back to. It lands in their
+          calendar entry and their inbox.
+        */}
+        {isPractice && appointment.status !== "requested" && (
+          <Button size="sm" variant="secondary" onClick={() => setNoteOpen(true)}>
+            {appointment.vet_note ? "Edit your note" : "Add a note"}
+          </Button>
+        )}
         {appointment.status !== "cancelled" && appointment.status !== "declined" && (
           <Button size="sm" variant="ghost" onClick={() => void cancel()} disabled={busy}>
             {appointment.status !== "requested"
@@ -403,12 +418,20 @@ function AppointmentRow({
       />
 
       {isPractice && (
-        <ReplyDialog
-          appointment={appointment}
-          open={replyOpen}
-          onClose={() => setReplyOpen(false)}
-          onAnswered={onChanged}
-        />
+        <>
+          <ReplyDialog
+            appointment={appointment}
+            open={replyOpen}
+            onClose={() => setReplyOpen(false)}
+            onAnswered={onChanged}
+          />
+          <VetNoteDialog
+            appointment={appointment}
+            open={noteOpen}
+            onClose={() => setNoteOpen(false)}
+            onSaved={onChanged}
+          />
+        </>
       )}
       <RescheduleDialog
         appointment={appointment}
@@ -709,6 +732,90 @@ function ReplyDialog({
     </Modal>
   );
 }
+
+/*
+ * What the practice wrote down about the visit.
+ *
+ * Replaces the note rather than appending to it, and re-announces on every
+ * change. A correction to clinical wording is the message most worth
+ * delivering, so an edit is news rather than noise - and the owner reading it
+ * later needs one current note, not a thread of superseded ones.
+ */
+function VetNoteDialog({
+  appointment,
+  open,
+  onClose,
+  onSaved,
+}: {
+  appointment: Appointment;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [note, setNote] = useState(appointment.vet_note ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!note.trim()) {
+      setError("Write the note first.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await addAppointmentNote(appointment.id, note.trim());
+      toast("Note saved. The owner has been told.", "success");
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save the note.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={appointment.vet_note ? "Edit your note" : "Add a note"}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Close
+          </Button>
+          <Button onClick={() => void save()} loading={busy}>
+            Save and notify
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          {appointment.owner.display_name} will see this on the appointment, in their calendar
+          entry, and by email if they have email switched on.
+        </p>
+        <Textarea
+          label="Note"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="What you would like the owner to know or to bring."
+          rows={4}
+          maxLength={1000}
+          hint="Keep it to what the owner needs. This is a record of what was said, not a diagnosis."
+        />
+        {error && (
+          <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 
 /*
  * Suggesting a different time for something already agreed.

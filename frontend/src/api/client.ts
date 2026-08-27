@@ -7,6 +7,8 @@ import type {
   AssistantProcessResponse,
   AuthResponse,
   CurrentUser,
+  EmailDeliveryStatus,
+  EmailVerificationResult,
   Post,
   PostDetail,
   ProfileUpdatePayload,
@@ -15,6 +17,7 @@ import type {
   ReportPayload,
   ReportStatus,
   SignupPayload,
+  SignupResponse,
   SymptomCheck,
   SymptomIntake,
   TriageAssessment,
@@ -91,11 +94,21 @@ export async function apiFetch(
 
 export class ApiError extends Error {
   readonly status: number;
+  /**
+   * A machine-readable reason, when the server sent one.
+   *
+   * `/login` answers 403 both for a banned account and for an unconfirmed
+   * address, and the two need opposite endings — one is final, the other is a
+   * link away from being fixed. Matching on the message text would tie the
+   * interface to the wording, so the server sends a code beside it.
+   */
+  readonly code: string | null;
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, code: string | null = null) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -119,6 +132,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
       throw new ApiError(response.status, serverErrorMessage(response.status));
     }
     let detail = "Something went wrong with that request. Please try again.";
+    let code: string | null = null;
     try {
       const body = (await response.json()) as { detail?: unknown };
       if (typeof body.detail === "string") detail = body.detail;
@@ -127,10 +141,16 @@ async function parseResponse<T>(response: Response): Promise<T> {
         const first = body.detail[0] as { msg?: unknown };
         if (typeof first.msg === "string") detail = first.msg;
       }
+      // A refusal the caller has to be able to branch on sends an object.
+      else if (body.detail !== null && typeof body.detail === "object") {
+        const structured = body.detail as { code?: unknown; message?: unknown };
+        if (typeof structured.message === "string") detail = structured.message;
+        if (typeof structured.code === "string") code = structured.code;
+      }
     } catch {
       // Non-JSON error body; keep the generic message.
     }
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, detail, code);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -146,9 +166,18 @@ function requestJson<T>(path: string, method: string, body?: unknown): Promise<T
 
 // --------------------------------------------------------------------- auth
 
-export function signup(payload: SignupPayload): Promise<AuthResponse> {
-  return requestJson<AuthResponse>("/auth/signup", "POST", payload);
+/**
+ * Create an account. Does **not** sign anybody in.
+ *
+ * The address has to be confirmed first, so there is no token to store — the
+ * caller shows "check your email" instead of navigating to the dashboard.
+ */
+export function signup(payload: SignupPayload): Promise<SignupResponse> {
+  return requestJson<SignupResponse>("/auth/signup", "POST", payload);
 }
+
+/** The `code` on a 403 from `/login` when the address is not confirmed. */
+export const EMAIL_UNVERIFIED = "email_unverified";
 
 export function login(email: string, password: string): Promise<AuthResponse> {
   return requestJson<AuthResponse>("/auth/login", "POST", { email, password });
@@ -169,6 +198,59 @@ export function changePassword(currentPassword: string, newPassword: string): Pr
     current_password: currentPassword,
     new_password: newPassword,
   });
+}
+
+// ------------------------------------------------------- email verification
+
+/**
+ * Spend a link from a verification email.
+ *
+ * Deliberately not authenticated: these links are very often opened in a
+ * different browser from the one that is signed in — a phone, a work machine —
+ * and requiring a session would make the common case fail.
+ *
+ * The status code carries the difference the page has to show. 410 means the
+ * link was real and is finished (expired or already used), 400 means it never
+ * was one; sending somebody to "ask for a new link" versus "check you copied
+ * the whole address" depends on telling those apart.
+ */
+export function verifyEmail(token: string): Promise<EmailVerificationResult> {
+  return requestJson<EmailVerificationResult>("/auth/verify-email", "POST", { token });
+}
+
+/**
+ * Ask for another verification link.
+ *
+ * Always resolves for a well-formed address, whether or not it belongs to an
+ * account. The backend answers identically either way so that this endpoint
+ * cannot be used to find out which addresses are registered — the interface has
+ * to keep that promise too, and must not imply an account was found.
+ */
+export function resendVerification(email: string): Promise<{ detail: string }> {
+  return requestJson<{ detail: string }>("/auth/verify-email/resend", "POST", { email });
+}
+
+export function requestPasswordReset(email: string): Promise<{ detail: string }> {
+  return requestJson<{ detail: string }>("/auth/forgot-password", "POST", { email });
+}
+
+/** Spend a reset link. Returns a session, so the person is signed in afterwards. */
+export function resetPassword(token: string, newPassword: string): Promise<AuthResponse> {
+  return requestJson<AuthResponse>("/auth/reset-password", "POST", {
+    token,
+    new_password: newPassword,
+  });
+}
+
+/**
+ * Whether this deployment can send email at all.
+ *
+ * Public, because the sign-up, resend and forgotten-password screens all need
+ * it and none of them has a session yet.
+ */
+export async function getEmailDelivery(): Promise<EmailDeliveryStatus> {
+  const response = await apiFetch(`${API_BASE}/auth/email-delivery`);
+  return parseResponse<EmailDeliveryStatus>(response);
 }
 
 export async function uploadAvatar(file: File): Promise<CurrentUser> {
@@ -595,6 +677,16 @@ export function sendAppointmentMessage(
     "POST",
     { body },
   );
+}
+
+/** The practice adds or corrects a note on an appointment it has answered. */
+export function addAppointmentNote(
+  id: string,
+  note: string,
+): Promise<import("../types").Appointment> {
+  return requestJson<import("../types").Appointment>(`/appointments/${id}/note`, "POST", {
+    note,
+  });
 }
 
 export function cancelAppointment(id: string): Promise<import("../types").Appointment> {

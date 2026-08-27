@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { useSession } from "../../auth/SessionContext";
+import EmailDeliveryNotice from "../../components/EmailDeliveryNotice";
 import { Button, Card, Input, PawIcon, StethoscopeIcon } from "../../components/ui";
-import type { SignupPayload } from "../../types";
+import type { SignupPayload, SignupResponse } from "../../types";
 
 type SignupRole = SignupPayload["role"];
 
@@ -32,7 +33,16 @@ const ROLE_OPTIONS: Array<{
 
 export default function SignupPage() {
   const { user, signup } = useSession();
-  const navigate = useNavigate();
+  /*
+   * Where signing up now ends.
+   *
+   * It used to end on the dashboard: signup returned a session and the page
+   * navigated straight there. It cannot any more — an account whose address is
+   * unconfirmed is refused by `/login`, so handing back a working session here
+   * would be the two rules disagreeing, and the one that let people in would be
+   * the one that mattered.
+   */
+  const [created, setCreated] = useState<SignupResponse | null>(null);
 
   // Admin accounts are never self-registered, so the picker is owner/vet only.
   const [role, setRole] = useState<SignupRole>("owner");
@@ -46,21 +56,60 @@ export default function SignupPage() {
 
   if (user) return <Navigate to="/dashboard" replace />;
 
+  if (created) {
+    return (
+      <div className="mx-auto max-w-md">
+        <Card
+          title="Check your email"
+          description="One more step before you can sign in."
+        >
+          <div className="mt-5 space-y-4">
+            <p
+              className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+              role="status"
+            >
+              {created.detail}
+            </p>
+            <p className="text-sm text-slate-600">
+              The link is good for two days and can be used once. We cannot sign you in until
+              you have opened it — it is how we know the address is really yours, and how a
+              password reset would reach you later.
+            </p>
+            {/* Says so plainly when this deployment writes mail to a file
+                instead of sending it, because otherwise somebody waits for a
+                message that was never going to arrive. */}
+            <EmailDeliveryNotice what="confirmation emails" />
+            <div className="flex flex-wrap gap-2">
+              <Link to="/login">
+                <Button>Go to sign in</Button>
+              </Link>
+              <Link to="/resend-verification">
+                <Button variant="secondary">Send the link again</Button>
+              </Link>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await signup({
-        email: email.trim(),
-        password,
-        display_name: displayName.trim(),
-        role,
-        clinic_name: role === "veterinarian" && clinicName.trim() ? clinicName.trim() : undefined,
-        license_number:
-          role === "veterinarian" && licenseNumber.trim() ? licenseNumber.trim() : undefined,
-      });
-      navigate("/dashboard", { replace: true });
+      setCreated(
+        await signup({
+          email: email.trim(),
+          password,
+          display_name: displayName.trim(),
+          role,
+          clinic_name:
+            role === "veterinarian" && clinicName.trim() ? clinicName.trim() : undefined,
+          license_number:
+            role === "veterinarian" && licenseNumber.trim() ? licenseNumber.trim() : undefined,
+        }),
+      );
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "Could not create the account. Is the backend running?",
@@ -175,6 +224,10 @@ export default function SignupPage() {
               {error}
             </p>
           )}
+
+          {/* Set before the account exists, so nobody is surprised by the
+              "check your email" screen that follows. */}
+          <EmailDeliveryNotice what="confirmation emails" />
 
           <Button type="submit" loading={submitting} className="w-full">
             Create account

@@ -16,7 +16,9 @@ from app.api.deps import get_current_admin, get_current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import User, UserRole, VerificationStatus, VetVerification
+from app.models.notification import NotificationKind
 from app.schemas import VerificationDecision, VetVerificationRead
+from app.services.notifications import notify
 from app.services.storage import StorageService, get_storage_service
 
 router = APIRouter()
@@ -167,11 +169,23 @@ def decide_verification(
             detail="A newer submission from this veterinarian supersedes this one; decide that instead.",
         )
 
+    # Whether the badge is being taken away, worked out BEFORE the account is
+    # written. A rejection of a submission that was already approved is a
+    # revocation, and reading it as a plain rejection would tell a practice
+    # their application was turned down when in fact their badge has gone -
+    # two different things to explain, and only one of them is news.
+    revoked = (
+        payload.status == VerificationStatus.REJECTED
+        and verification.user.verification_status == VerificationStatus.VERIFIED
+    )
+
     verification.status = payload.status
     verification.review_note = payload.review_note
     verification.reviewed_by_id = admin.id
     verification.reviewed_at = datetime.now(timezone.utc)
     verification.user.verification_status = payload.status
+
+    _announce_decision(db, verification, revoked=revoked)
 
     db.commit()
     db.refresh(verification)
@@ -179,3 +193,66 @@ def decide_verification(
     # submitter and the reviewing admin never triggers a detached lazy load.
     _ = verification.user, verification.reviewed_by
     return verification
+
+
+def _announce_decision(
+    db: Session, verification: VetVerification, *, revoked: bool
+) -> None:
+    """Tell the veterinarian what was decided about their licence.
+
+    Inside the same transaction as the decision, so a decision that fails to
+    save cannot leave an announcement behind saying it was made.
+
+    The review note is included where there is one. A rejection without a
+    reason is a dead end - the veterinarian cannot tell whether to resubmit a
+    clearer scan or to give up - and the note is the only part of this that
+    tells them what to do next.
+    """
+    subject = verification.user
+    note = (verification.review_note or "").strip() or None
+
+    if verification.status == VerificationStatus.VERIFIED:
+        kind = NotificationKind.VERIFICATION_APPROVED
+        title = "Your veterinarian account is verified"
+        body = (
+            "An administrator has checked your licence document. The verified "
+            "veterinarian badge now appears on your profile and beside everything "
+            "you post."
+        )
+    elif revoked:
+        kind = NotificationKind.VERIFICATION_REVOKED
+        title = "Your verified veterinarian badge has been removed"
+        body = (
+            "An administrator has withdrawn the verification on your account, so "
+            "the verified badge no longer appears beside your name. You can submit "
+            "a new licence document for review at any time."
+        )
+    else:
+        kind = NotificationKind.VERIFICATION_REJECTED
+        title = "Your verification request was not approved"
+        body = (
+            "An administrator reviewed your licence document and could not verify "
+            "it. You can submit another document for review."
+        )
+    if note:
+        body += f" They said: {note}"
+
+    facts: list[tuple[str, str]] = [("Decision", verification.status.value)]
+    if verification.license_number:
+        facts.append(("Licence number", verification.license_number))
+    if verification.reviewed_at:
+        facts.append(("Reviewed", f"{verification.reviewed_at:%d %b %Y}"))
+
+    notify(
+        db,
+        user=subject,
+        kind=kind,
+        title=title,
+        body=body,
+        # Keyed on the submission AND the verdict: a decision reversed later is
+        # genuinely new news, and a key naming only the submission would
+        # silence the reversal forever.
+        dedupe_key=f"verification:{verification.id}:{kind.value}",
+        link="/profile",
+        email_facts=facts,
+    )

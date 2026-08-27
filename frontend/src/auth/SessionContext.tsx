@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import * as api from "../api/client";
-import type { CurrentUser, SignupPayload } from "../types";
+import type { CurrentUser, SignupPayload, SignupResponse } from "../types";
 
 /*
  * Session state for the whole app (Member 2).
@@ -18,10 +18,26 @@ interface SessionContextValue {
   /** True while the stored token is being validated on first load. */
   initializing: boolean;
   login: (email: string, password: string) => Promise<CurrentUser>;
-  signup: (payload: SignupPayload) => Promise<CurrentUser>;
+  /**
+   * Create an account. Does NOT start a session.
+   *
+   * Returns what the server said instead of a user, because there is no user to
+   * return yet: signing in needs a confirmed address, and confirming it happens
+   * in the reader's inbox rather than here.
+   */
+  signup: (payload: SignupPayload) => Promise<SignupResponse>;
   logout: () => void;
   /** Merge freshly saved profile data into the session (e.g. after PATCH). */
   setUser: (user: CurrentUser) => void;
+  /**
+   * Adopt a session the caller already obtained.
+   *
+   * For the password-reset page, which is handed a token and a user by the
+   * reset endpoint itself. Sending somebody who has just proved they hold the
+   * inbox AND chosen a password to a login form to type it again is a step that
+   * protects nobody.
+   */
+  adoptSession: (token: string, user: CurrentUser) => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -58,11 +74,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return loggedIn;
   }, []);
 
-  const signup = useCallback(async (payload: SignupPayload): Promise<CurrentUser> => {
-    const { token, user: created } = await api.signup(payload);
-    api.setStoredToken(token);
-    setUserState(created);
-    return created;
+  const signup = useCallback(async (payload: SignupPayload): Promise<SignupResponse> => {
+    // No token is stored and no user is set: the account exists but cannot be
+    // used until the link in its confirmation email has been opened.
+    return api.signup(payload);
   }, []);
 
   const logout = useCallback(() => {
@@ -72,8 +87,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const setUser = useCallback((updated: CurrentUser) => setUserState(updated), []);
 
+  const adoptSession = useCallback((token: string, adopted: CurrentUser) => {
+    api.setStoredToken(token);
+    setUserState(adopted);
+  }, []);
+
   return (
-    <SessionContext.Provider value={{ user, initializing, login, signup, logout, setUser }}>
+    <SessionContext.Provider
+      value={{ user, initializing, login, signup, logout, setUser, adoptSession }}
+    >
       {children}
     </SessionContext.Provider>
   );

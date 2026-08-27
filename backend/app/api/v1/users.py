@@ -1,16 +1,22 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+import logging
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.v1.auth import guard_email_rate as _guard_email_rate
 from app.core.config import get_settings
 from app.core.security import hash_password, verify_password
 from app.db.session import get_db
 from app.models import User
 from app.schemas import CurrentUserRead, PasswordChange, UserUpdate
+from app.services import auth_email
 from app.services.storage import StorageService, get_storage_service
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 from app.services.clinic_directory import normalise_grid, normalise_specialties
 
@@ -20,10 +26,12 @@ _AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 @router.patch("/me", response_model=CurrentUserRead)
 def update_profile(
     payload: UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> User:
     updates = payload.model_dump(exclude_unset=True)
+    pending_change: str | None = None
 
     if "email" in updates:
         email = updates["email"].lower()
@@ -35,7 +43,27 @@ def update_profile(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="An account with this email already exists.",
             )
-        updates["email"] = email
+        # The address does NOT change here.
+        #
+        # It changes when a link sent to the new address is clicked, and the
+        # reason is the failure this prevents: a typo saved straight onto the
+        # account sends every future password reset to an inbox the owner
+        # cannot read, which locks them out by way of the exact mechanism meant
+        # to let them back in. Until then the account keeps the address it has
+        # and `pending_email` says what is waiting.
+        del updates["email"]
+        if email == current_user.email:
+            # Setting it back to the current address is how somebody cancels a
+            # change they typed wrongly. Nothing is sent.
+            current_user.pending_email = None
+            auth_email.revoke_outstanding(
+                db, current_user, auth_email.TokenPurpose.EMAIL_CHANGE
+            )
+        else:
+            _guard_email_rate(request, email, action="change")
+            current_user.pending_email = email
+            auth_email.send_email_change(db, current_user, email)
+            pending_change = email
 
     # Cleaned rather than trusted. Both of these are filter inputs, and a
     # profile is the one place a practice types them: an unrecognised specialty
@@ -59,6 +87,8 @@ def update_profile(
         setattr(current_user, field, value)
     db.commit()
     db.refresh(current_user)
+    if pending_change:
+        logger.info("An email change is awaiting confirmation for account %s.", current_user.id)
     return current_user
 
 

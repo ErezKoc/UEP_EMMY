@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 import app.models  # noqa: F401 - registers every table with Base.metadata
 from app.db.base import Base
 from app.models import AgeCategory, Animal, Recurrence, Reminder, ReminderType, User
+from app.models.email import EmailState
 from app.models.notification import Notification, NotificationKind
 from app.services.notifications import due_reminder_notifications, notify
 from app.services.recurrence import describe, next_occurrence, occurrences_between
@@ -267,15 +268,19 @@ def test_notify_returns_none_rather_than_duplicating(session, owner):
     assert second is None
 
 
-def test_email_failure_never_costs_the_in_app_alert(session, owner, dog, monkeypatch):
-    """A mail server being down must not swallow the notification too."""
+def test_queueing_the_email_never_costs_the_in_app_alert(session, owner, dog, monkeypatch):
+    """The email half failing must not swallow the notification too.
+
+    The email is queued rather than sent here, so this is the queue refusing to
+    write its row - a full disk, a constraint nobody expected. The in-app alert
+    is the half the person may actually be looking at, and it must survive.
+    """
     from app.services import notifications as module
 
-    class _Broken:
-        def send(self, **kwargs):
-            raise OSError("mail server is on fire")
+    def _explode(*args, **kwargs):
+        raise OSError("the queue is on fire")
 
-    monkeypatch.setattr(module, "get_email_sender", lambda: _Broken())
+    monkeypatch.setattr(module.email_queue, "enqueue_for_notification", _explode)
     today = date.today()
     _save_reminder(session, owner, dog, due_date=today)
 
@@ -284,6 +289,7 @@ def test_email_failure_never_costs_the_in_app_alert(session, owner, dog, monkeyp
     assert created == 1
     stored = session.scalars(select(Notification)).all()
     assert len(stored) == 1
-    # Recorded as not emailed, so a retry knows which half is missing rather
-    # than assuming the whole notification went out.
+    # Recorded as nothing-queued rather than as sent, so the interface never
+    # claims an email that does not exist.
     assert stored[0].emailed is False
+    assert stored[0].email_state is EmailState.NOT_REQUESTED

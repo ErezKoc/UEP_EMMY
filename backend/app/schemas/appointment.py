@@ -133,3 +133,17 @@ class AppointmentRead(BaseModel):
     #: appointments endpoint fills it in per caller, the way the community feed
     #: does for "you found this helpful".
     unread_message_count: int = 0
+
+
+class AppointmentNote(BaseModel):
+    """A note the practice adds to an appointment after answering it.
+
+    Separate from `AppointmentDecision.vet_note`, which can only be written at
+    the moment of confirming or declining. Once that moment has passed there was
+    no way to add "bring the previous blood results" or "she was bright and the
+    swelling has gone down" to the record at all — the only remaining channel
+    was the message thread, which is a conversation rather than something the
+    owner can come back to.
+    """
+
+    note: str = Field(min_length=1, max_length=1000)

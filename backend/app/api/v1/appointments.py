@@ -6,6 +6,7 @@ checks are per-row rather than per-role, because "is a vet" is not the question
 - "is THIS appointment's vet" is.
 """
 
+import hashlib
 import uuid
 from datetime import date, datetime, time, timezone
 
@@ -25,6 +26,7 @@ from app.schemas.appointment import (
     AppointmentDecision,
     AppointmentMessageCreate,
     AppointmentMessageRead,
+    AppointmentNote,
     AppointmentRead,
     AppointmentReschedule,
     RescheduleDecision,
@@ -84,6 +86,33 @@ def _for_viewer(appointment: Appointment, viewer: User) -> AppointmentRead:
         if message.sender_id != viewer.id and message.read_at is None
     )
     return data
+
+
+def _facts(
+    appointment: Appointment, *, when: str | None = None, extra: list[tuple[str, str]] | None = None
+) -> list[tuple[str, str]]:
+    """The labelled details an email carries that a one-line alert cannot.
+
+    An in-app alert is read in front of the appointment it is about; an email is
+    read on a phone at a bus stop, days later, with no list beside it. The pet's
+    name and the practice are what make it possible to act on without opening
+    anything.
+
+    Nothing here is invented. A field the appointment does not have is a row
+    that is not printed.
+    """
+    facts: list[tuple[str, str]] = []
+    if appointment.animal is not None:
+        facts.append(("Pet", appointment.animal.name))
+    practice = appointment.vet.clinic_name or appointment.vet.display_name
+    facts.append(("Practice", practice))
+    if when:
+        facts.append(("When", when))
+    facts.append(("Reason given", appointment.reason))
+    if appointment.vet.clinic_phone:
+        facts.append(("Practice number", appointment.vet.clinic_phone))
+    facts.extend(extra or [])
+    return facts
 
 
 @router.get("", response_model=list[AppointmentRead])
@@ -207,6 +236,7 @@ def request_appointment(
         ),
         dedupe_key=f"appointment:{appointment.id}:requested",
         link="/appointments",
+        email_facts=_facts(appointment, when=asked, extra=[("From", current_user.display_name)]),
     )
 
     db.commit()
@@ -253,6 +283,10 @@ def respond_to_appointment(
             ),
             dedupe_key=f"appointment:{appointment.id}:declined",
             link="/appointments",
+            email_facts=_facts(
+                appointment,
+                when=f"{appointment.preferred_date:%d %b %Y} (the day you asked for)",
+            ),
         )
         db.commit()
         db.refresh(appointment)
@@ -297,6 +331,9 @@ def respond_to_appointment(
         ),
         dedupe_key=f"appointment:{appointment.id}:confirmed",
         link="/appointments",
+        email_facts=_facts(
+            appointment, when=_when(scheduled, appointment.scheduled_time)
+        ),
     )
 
     db.commit()
@@ -373,6 +410,11 @@ def propose_reschedule(
             f"appointment:{appointment.id}:reschedule:{payload.new_date}T{payload.new_time}"
         ),
         link="/appointments",
+        email_facts=_facts(
+            appointment,
+            when=_when(appointment.scheduled_date, appointment.scheduled_time),
+            extra=[("Suggested", _when(payload.new_date, payload.new_time))],
+        ),
     )
 
     db.commit()
@@ -432,6 +474,11 @@ def respond_to_reschedule(
                 f"{proposed_date}T{proposed_time}"
             ),
             link="/appointments",
+            email_facts=_facts(
+                appointment,
+                when=_when(appointment.scheduled_date, appointment.scheduled_time),
+                extra=[("Turned down", _when(proposed_date, proposed_time))],
+            ),
         )
         db.commit()
         db.refresh(appointment)
@@ -461,6 +508,11 @@ def respond_to_reschedule(
         ),
         dedupe_key=f"appointment:{appointment.id}:rescheduled:{proposed_date}T{proposed_time}",
         link="/appointments",
+        email_facts=_facts(
+            appointment,
+            when=_when(proposed_date, proposed_time),
+            extra=[("Was", was)],
+        ),
     )
 
     db.commit()
@@ -517,7 +569,80 @@ def cancel_appointment(
         body=f"{current_user.display_name} cancelled the appointment on {when}.",
         dedupe_key=f"appointment:{appointment.id}:cancelled",
         link="/appointments",
+        email_facts=_facts(appointment, when=when),
     )
+    db.commit()
+    db.refresh(appointment)
+    return _for_viewer(appointment, current_user)
+
+
+# ------------------------------------------------------- what the practice said
+
+
+@router.post("/{appointment_id}/note", response_model=AppointmentRead)
+def add_vet_note(
+    appointment_id: uuid.UUID,
+    payload: AppointmentNote,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_active_user),
+) -> AppointmentRead:
+    """The practice writes something down about the visit, and the owner is told.
+
+    Only the veterinarian on the appointment. A note here is a record attributed
+    to a practice - it lands in the owner's calendar entry and in their inbox -
+    and an owner writing one would be putting words in the practice's mouth.
+
+    Open on every status except a request nobody has answered yet. Before an
+    answer, the note belongs on the answer: `respond` already takes one, and
+    accepting a second route into the same field would let a practice add advice
+    to a request they have not agreed to.
+
+    Replacing an existing note is allowed and re-announced, because a correction
+    to clinical wording is the message most worth delivering.
+    """
+    appointment = _visible(db, appointment_id, current_user)
+    if appointment.vet_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the practice on this appointment can add a note to it.",
+        )
+    if appointment.status is AppointmentStatus.REQUESTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Answer the request first - a note goes with your answer.",
+        )
+
+    note = payload.note.strip()
+    appointment.vet_note = note
+
+    # The calendar entry carries the note, so the owner reads it on the morning
+    # of the visit rather than having to remember which email it was in.
+    if appointment.reminder_id is not None and appointment.animal_id is not None:
+        _sync_reminder(db, appointment, note)
+
+    practice = appointment.vet.clinic_name or appointment.vet.display_name
+    pet = f" about {appointment.animal.name}" if appointment.animal else ""
+    when = _when(
+        appointment.scheduled_date or appointment.preferred_date,
+        appointment.scheduled_time or appointment.preferred_time,
+    )
+    notify(
+        db,
+        user=appointment.owner,
+        kind=NotificationKind.VET_NOTE_ADDED,
+        title=f"A note from {practice}",
+        body=f"{practice} added a note{pet} about the appointment on {when}: {note[:400]}",
+        # The note's content is in the key, so an edited note is announced again
+        # and the same note saved twice is not. A digest rather than the text:
+        # the key is 200 characters and a note is up to a thousand.
+        dedupe_key=(
+            f"vet-note:{appointment.id}:"
+            f"{hashlib.sha256(note.encode()).hexdigest()[:16]}"
+        ),
+        link="/appointments",
+        email_facts=_facts(appointment, when=when, extra=[("Note", note[:200])]),
+    )
+
     db.commit()
     db.refresh(appointment)
     return _for_viewer(appointment, current_user)
@@ -606,6 +731,14 @@ def send_message(
             body=f"About the appointment{pet}: {body[:300]}",
             dedupe_key=f"appointment:{appointment.id}:message:{message.id}",
             link="/appointments",
+            email_facts=_facts(
+                appointment,
+                when=_when(
+                    appointment.scheduled_date or appointment.preferred_date,
+                    appointment.scheduled_time or appointment.preferred_time,
+                ),
+                extra=[("From", current_user.display_name)],
+            ),
         )
 
     db.commit()

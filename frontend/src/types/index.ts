@@ -65,6 +65,15 @@ export interface CurrentUser extends User {
   /** IANA zone the hour above is read in. Null means UTC, and the settings
    *  page says so rather than pretending a preference was honoured. */
   notify_timezone: string | null;
+  /** Extra lead times, largest first. Empty means "just `notify_lead_days`". */
+  notify_leads: number[];
+  /** When the address was proved by clicking a link sent to it, or null.
+   *  Nothing is gated on it — it is here so Settings can say which state the
+   *  address is in rather than leaving the question open. */
+  email_verified_at: string | null;
+  /** An address asked for and not yet confirmed. `email` above is still the
+   *  one that signs in, and stays so until the link is clicked. */
+  pending_email: string | null;
   suspended_until: string | null;
   moderation_note: string | null;
   /** False while suspended or banned: posting, commenting and reporting are off. */
@@ -127,6 +136,7 @@ export interface ProfileUpdatePayload {
   notify_in_app?: boolean;
   notify_email?: boolean;
   notify_lead_days?: number;
+  notify_leads?: number[] | null;
   notify_time?: string;
   notify_timezone?: string | null;
 }
@@ -134,6 +144,18 @@ export interface ProfileUpdatePayload {
 export interface AuthResponse {
   token: string;
   user: CurrentUser;
+}
+
+/**
+ * What signing up returns.
+ *
+ * Deliberately not an `AuthResponse` — an account cannot sign in until its
+ * address is confirmed, so there is no session to hand back yet.
+ */
+export interface SignupResponse {
+  email: string;
+  verification_required: boolean;
+  detail: string;
 }
 
 // ------------------------------------------------------- community reporting
@@ -321,7 +343,23 @@ export type NotificationKind =
   | "appointment_reschedule_proposed"
   | "appointment_rescheduled"
   | "appointment_reschedule_declined"
-  | "appointment_message";
+  | "appointment_message"
+  | "vet_note_added"
+  | "verification_approved"
+  | "verification_rejected"
+  | "verification_revoked"
+  | "moderation_decision";
+
+/**
+ * What happened to the email half of a notification.
+ *
+ * Four states rather than a boolean, because "did they get the email" has four
+ * honest answers. `not_requested` means nothing was meant to go out — the
+ * reader has email switched off — and must never be shown as a failure.
+ * `unavailable` means this deployment has no mail server, which is also not a
+ * failure and not something the reader can retry.
+ */
+export type EmailState = "not_requested" | "queued" | "sent" | "failed" | "unavailable";
 
 /**
  * One thing the platform wants to tell you.
@@ -337,9 +375,29 @@ export interface AppNotification {
   body: string;
   link: string | null;
   read_at: string | null;
-  /** Whether the email half went out — so "I never got the email" has an answer. */
+  /** True only when `email_state` is "sent". Kept for older code; read
+   *  `email_state` instead — a boolean cannot tell "waiting in the queue" from
+   *  "refused" from "this server cannot send email at all". */
   emailed: boolean;
+  email_state: EmailState;
   created_at: string;
+}
+
+/** Whether this deployment can actually deliver email. */
+export interface EmailDeliveryStatus {
+  /** True only when SMTP is configured. False means messages are written to
+   *  the server's outbox: recorded, but not reaching an inbox. */
+  available: boolean;
+  mode: "smtp" | "outbox";
+}
+
+/** The answer to a verification link. */
+export interface EmailVerificationResult {
+  email: string;
+  verified: boolean;
+  /** True when the link moved the account to a new address. */
+  email_changed: boolean;
+  detail: string;
 }
 
 export interface BreedCandidate {

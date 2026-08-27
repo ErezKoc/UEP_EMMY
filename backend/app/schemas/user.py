@@ -67,6 +67,23 @@ class CurrentUserRead(UserRead):
     suspended_until: UTCDateTime | None = None
     moderation_note: str | None = None
     can_participate: bool
+    #: When this address was proved by clicking a link sent to it, or None.
+    #: Nothing is gated on it - it exists so the settings page can say which
+    #: state the address is in rather than leaving the question open.
+    email_verified_at: UTCDateTime | None = None
+    #: An address this account has asked to move to and not yet confirmed. The
+    #: `email` field above is still the one that signs in, and stays so until
+    #: the link sent to this address is clicked.
+    pending_email: str | None = None
+    #: Extra lead times, largest first. Empty for an account that has only ever
+    #: used the single `notify_lead_days`.
+    notify_leads: list[int] = Field(default_factory=list)
+
+    @field_validator("notify_leads", mode="before")
+    @classmethod
+    def no_leads_is_an_empty_list(cls, value: object) -> object:
+        """A NULL column reads as "none chosen", not as a missing field."""
+        return [] if value is None else value
 
 
 class UserSummary(BaseModel):
@@ -205,6 +222,24 @@ class UserUpdate(BaseModel):
     # Capped rather than unbounded: an alert 200 days before a booster is not a
     # reminder, it is noise, and the scheduler would announce it every day.
     notify_lead_days: int | None = Field(default=None, ge=0, le=30)
+    #: Several lead times at once ([7, 1] is "a week before, and the day
+    #: before"). An empty list means "just `notify_lead_days`", which is what
+    #: every account meant before this existed.
+    #:
+    #: Capped at four, and each capped at 30 days, for the same reason as the
+    #: single value: a list of twenty lead times is twenty alerts about one
+    #: booster, which is how people learn to ignore all of them.
+    notify_leads: list[int] | None = None
+
+    @field_validator("notify_leads")
+    @classmethod
+    def a_short_list_of_sensible_leads(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        cleaned = sorted({min(30, max(0, int(day))) for day in value}, reverse=True)
+        if len(cleaned) > 4:
+            raise ValueError("Choose at most four lead times.")
+        return cleaned
     #: What time of day alerts go out, on the reader's own clock.
     notify_time: time | None = None
     #: An IANA zone name ("Europe/Istanbul"). Validated rather than stored as

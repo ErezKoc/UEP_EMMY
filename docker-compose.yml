@@ -2,6 +2,12 @@ services:
   backend:
     build:
       context: ./backend
+    # Local secrets stay outside Git and outside the built image.  The file is
+    # optional so a fresh clone still starts with the safe outbox fallback;
+    # teammates who receive backend/.env automatically get real SMTP delivery.
+    env_file:
+      - path: ./backend/.env
+        required: false
     ports:
       - "8000:8000"
     volumes:

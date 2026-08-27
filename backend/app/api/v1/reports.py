@@ -26,7 +26,9 @@ from app.models import (
     UserReport,
     UserRole,
 )
+from app.models.notification import NotificationKind
 from app.schemas import ReportCreate, ReportDecision, ReportRead
+from app.services.notifications import notify
 
 router = APIRouter()
 
@@ -223,7 +225,77 @@ def decide_report(
     report.reviewed_by_id = admin.id
     report.reviewed_at = datetime.now(timezone.utc)
 
+    # A dismissal is not told to anybody. The reported member never knew a
+    # report existed, and announcing "somebody reported you, and we decided it
+    # was nothing" would create a grievance out of a non-event.
+    if report.action_taken is not None:
+        _announce_moderation(db, report, reported, report.action_taken, note)
+
     db.commit()
     db.refresh(report)
     _ = report.reporter, report.reported_user, report.reviewed_by
     return report
+
+
+def _announce_moderation(
+    db: Session,
+    report: UserReport,
+    member: User,
+    action: ModerationAction,
+    note: str | None,
+) -> None:
+    """Tell a member about a decision that changes what their account can do.
+
+    Only ever for a decision they can feel. A suspension, a ban and a
+    reinstatement all change what happens when they next open the app, and
+    finding that out by being refused is worse than being told.
+
+    The moderator's reason is carried through. Every one of these is required
+    to have one - the endpoint refuses the decision otherwise - precisely so
+    this message is never "your account has been suspended" and nothing else.
+    """
+    if action is ModerationAction.SUSPEND:
+        title = "Your account has been suspended"
+        until = (
+            f" until {member.suspended_until:%d %b %Y}"
+            if member.suspended_until is not None
+            else ""
+        )
+        body = (
+            f"An administrator has suspended your UEP EMMY account{until}. You can "
+            "still sign in and read the platform; posting, commenting and reporting "
+            "are paused."
+        )
+    elif action is ModerationAction.BAN:
+        title = "Your account has been banned"
+        body = (
+            "An administrator has banned your UEP EMMY account for breaking the "
+            "community rules. You can no longer sign in."
+        )
+    else:
+        title = "Your account has been reinstated"
+        body = (
+            "An administrator has lifted the restriction on your UEP EMMY account. "
+            "You can post, comment and report again."
+        )
+    if note:
+        body += f" They said: {note}"
+
+    facts: list[tuple[str, str]] = [("Decision", action.value)]
+    if action is ModerationAction.SUSPEND and member.suspended_until is not None:
+        facts.append(("Until", f"{member.suspended_until:%d %b %Y}"))
+
+    notify(
+        db,
+        user=member,
+        kind=NotificationKind.MODERATION_DECISION,
+        title=title,
+        body=body,
+        # Keyed on the report and the verdict, not on the account. Two separate
+        # reports leading to two suspensions are two things the member is owed
+        # an explanation for; the same report re-decided the same way is one,
+        # and re-announcing it would read as a second punishment.
+        dedupe_key=f"moderation:{report.id}:{action.value}",
+        link="/profile",
+        email_facts=facts,
+    )

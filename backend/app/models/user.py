@@ -165,6 +165,38 @@ class User(Base):
     #: NULL falls back to UTC and the settings page says so rather than
     #: pretending a preference was honoured.
     notify_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Extra lead times, as a list of whole days: `[7, 1, 0]` announces a week
+    #: ahead, the day before, and on the day.
+    #:
+    #: One lead time was not enough for the thing people actually want from a
+    #: reminder. A booster needs a warning early enough to get an appointment
+    #: AND a nudge the night before, and a single number can only be one of
+    #: those. Each lead is announced separately and keyed separately, so none
+    #: of them silences the others.
+    #:
+    #: NULL means "just `notify_lead_days`", which is what every existing
+    #: account meant before this column existed - so nobody's alerts change
+    #: until they ask for something different.
+    notify_leads: Mapped[list | None] = mapped_column(PortableJSON, nullable=True)
+
+    #: When this address was proved by clicking a link sent to it, or NULL for
+    #: an address nobody has confirmed.
+    #:
+    #: Nothing is gated on it today: an unverified account can still use the
+    #: platform, because locking a pet owner out of their own reminders over an
+    #: unread email would cost more than it protects. It is recorded so the
+    #: account page can say which state the address is in, and so a future
+    #: gate has something true to read.
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: An address the account has asked to move to, not yet proved.
+    #:
+    #: The new address does NOT replace `email` until its link is clicked. A
+    #: typo in this field would otherwise send every future password reset to
+    #: an address the owner cannot read, and the account is then unrecoverable
+    #: by exactly the mechanism meant to recover it.
+    pending_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     verification_status: Mapped[VerificationStatus] = mapped_column(
         Enum(
             VerificationStatus,
@@ -202,6 +234,30 @@ class User(Base):
         cascade="all, delete-orphan",
         order_by="VetVerification.created_at.desc()",
     )
+
+    @property
+    def email_is_verified(self) -> bool:
+        return self.email_verified_at is not None
+
+    @property
+    def lead_days(self) -> list[int]:
+        """Every lead time this account wants, largest first and de-duplicated.
+
+        Falls back to the single `notify_lead_days` when `notify_leads` is
+        unset or unusable, which is what an account that predates the column
+        already meant. Values are clamped to the range the settings form
+        allows, so a hand-edited row cannot make the scheduler announce a
+        reminder two hundred days early on every sweep.
+        """
+        raw = self.notify_leads if isinstance(self.notify_leads, list) else None
+        if not raw:
+            return [max(0, self.notify_lead_days or 0)]
+        cleaned = set()
+        for value in raw:
+            if isinstance(value, bool) or not isinstance(value, int):
+                continue
+            cleaned.add(min(30, max(0, value)))
+        return sorted(cleaned, reverse=True) or [max(0, self.notify_lead_days or 0)]
 
     @property
     def is_verified_vet(self) -> bool:

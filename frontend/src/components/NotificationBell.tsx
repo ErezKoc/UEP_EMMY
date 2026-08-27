@@ -16,7 +16,7 @@ import {
   Spinner,
 } from "./ui";
 import { formatRelativeTime } from "../lib/format";
-import type { AppNotification, NotificationKind } from "../types";
+import type { AppNotification, EmailState, NotificationKind } from "../types";
 
 /** How often the badge re-checks. Reminders are day-grained; this is plenty. */
 const POLL_MS = 60_000;
@@ -33,6 +33,32 @@ const KIND_ICON: Record<NotificationKind, (props: { className?: string }) => Rea
   appointment_rescheduled: CheckCircleIcon,
   appointment_reschedule_declined: CalendarIcon,
   appointment_message: ChatIcon,
+  vet_note_added: ChatIcon,
+  verification_approved: CheckCircleIcon,
+  verification_rejected: AlertTriangleIcon,
+  verification_revoked: AlertTriangleIcon,
+  moderation_decision: AlertTriangleIcon,
+};
+
+/*
+ * What to say about the email half, in words a reader can act on.
+ *
+ * The old interface printed "not emailed" against anything whose `emailed`
+ * boolean was false, which covered three completely different situations: a
+ * message queued two seconds ago and about to arrive, a message a mail server
+ * refused, and a deployment with no mail server at all. Two of those are not
+ * problems, and the one that is needed a different sentence from either.
+ *
+ * `sent` and `not_requested` say nothing. A note on every row that the email
+ * went is noise, and so is announcing the absence of an email the reader
+ * switched off themselves.
+ */
+const EMAIL_NOTE: Record<EmailState, string | null> = {
+  sent: null,
+  not_requested: null,
+  queued: "email on its way",
+  failed: "email could not be delivered",
+  unavailable: "email unavailable on this server",
 };
 
 /*
@@ -184,12 +210,21 @@ export default function NotificationBell() {
                       <p className="mt-1 text-xs text-slate-400">
                         {formatRelativeTime(item.created_at)}
                         {/*
-                          Only mentioned when it did NOT go out. Saying "emailed"
-                          on every row is noise; saying nothing when the email
-                          silently failed is how "I never got it" becomes
+                          Only mentioned when there is something to say. Saying
+                          "emailed" on every row is noise; saying nothing when
+                          the email was refused is how "I never got it" becomes
                           unanswerable.
                         */}
-                        {!item.emailed && " · not emailed"}
+                        {EMAIL_NOTE[item.email_state] && (
+                          <span
+                            className={
+                              item.email_state === "failed" ? "text-rose-500" : undefined
+                            }
+                          >
+                            {" · "}
+                            {EMAIL_NOTE[item.email_state]}
+                          </span>
+                        )}
                       </p>
                     </div>
                     {!item.read_at && (

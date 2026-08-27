@@ -13,10 +13,14 @@ import NotFound from "./pages/NotFound";
 import AnalysisHistoryPage from "./pages/analysis/AnalysisHistoryPage";
 import AnalysisDetailPage from "./pages/analysis/AnalysisDetailPage";
 import AnalyzePage from "./pages/analysis/AnalyzePage";
+import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import LoginPage from "./pages/auth/LoginPage";
 import ProfilePage from "./pages/auth/ProfilePage";
 import SettingsPage from "./pages/auth/SettingsPage";
+import ResendVerificationPage from "./pages/auth/ResendVerificationPage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import SignupPage from "./pages/auth/SignupPage";
+import VerifyEmailPage from "./pages/auth/VerifyEmailPage";
 import CommunityPage from "./pages/community/CommunityPage";
 import NewPostPage from "./pages/community/NewPostPage";
 import PostDetailPage from "./pages/community/PostDetailPage";
@@ -55,6 +59,7 @@ function LandingOrDashboard() {
  *
  * Ownership:
  *   Member 2 — /login /signup /profile /settings
+ *              /verify-email /resend-verification /forgot-password /reset-password
  *   Member 3 — /pets /pets/:petId
  *   Member 4 — /analyze /analysis/history /symptom-check
  *   Member 5 — /community /community/new /community/:postId /vets
@@ -80,6 +85,18 @@ export default function App() {
 
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              {/*
+                All four are public, and all four have to be. A verification or
+                reset link is opened wherever the reader has their email - a
+                phone, a work machine - which is very often not the browser
+                holding the session, and gating them behind RequireAuth would
+                make the ordinary case fail. Each one carries its own single-use
+                token; that is what authorises it, not a cookie.
+              */}
+              <Route path="/verify-email" element={<VerifyEmailPage />} />
+              <Route path="/resend-verification" element={<ResendVerificationPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/new-owner-guide" element={<NewOwnerGuidePage />} />
               <Route
                 path="/profile"

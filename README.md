@@ -104,6 +104,297 @@ analysis belongs to the signed-in author.
   | `demo.newvet@uepemmy.com` | Veterinarian | Unverified, for demoing the request flow |
   | `admin@uepemmy.com` | Admin | Reviews licence documents |
 
+  These four are marked email-confirmed on every boot, so they can sign in
+  without a readable inbox. Accounts you create yourself must confirm their
+  address first — see the outbox section below.
+
+### Email: verification, password resets, and notifications
+
+Every email the platform sends is transactional — the consequence of something
+the reader or somebody they deal with did. There are no marketing emails and no
+mailing list.
+
+**Nothing in a request talks to a mail server.** An endpoint that wants an email
+writes a row into `email_messages` and returns; a background sweep
+(`_email_sweep` in `main.py`, every `EMAIL_SWEEP_SECONDS`) delivers it and
+records what happened. A slow or unreachable relay makes a message late, never
+an API call slow.
+
+#### Local development: the outbox
+
+With `SMTP_HOST` empty — for example when `backend/.env` is absent or still has
+the placeholder values — **nothing is sent**. Each message is written to
+`backend/storage/outbox/<timestamp>-<id>.eml` as a complete, valid email and
+recorded as `unavailable`, never as `sent`. The interface says so too: Settings
+reads `GET /v1/auth/email-delivery` and states plainly that this server cannot
+send email, and each alert in the notification bell says "email unavailable on
+this server" rather than claiming delivery.
+
+Read what would have gone out:
+
+```bash
+cd backend
+python -m app.scripts.outbox            # newest first, one line each
+python -m app.scripts.outbox --show 1   # one message: both bodies, and its links
+python -m app.scripts.outbox --links    # just the links from the newest message
+```
+
+`--show` is the one worth knowing: verification and reset links are long, and a
+mail file read with `cat` wraps them across two lines in quoted-printable —
+which is exactly the part you opened the file for.
+
+**This is how you sign in as a new account in development.** Confirming the
+address is required, so after signing up locally: `python -m app.scripts.outbox
+--links`, open the link, then sign in. The seeded demo accounts skip this — they
+are marked confirmed on boot.
+
+To see real inboxes without real credentials, run a local capture server —
+[Mailpit](https://github.com/axllent/mailpit) or MailHog — and point SMTP at it.
+Everything then follows the real SMTP path, including retries:
+
+```bash
+docker run -p 1025:1025 -p 8025:8025 axllent/mailpit
+```
+
+```dotenv
+# backend/.env
+SMTP_HOST=localhost
+SMTP_PORT=1025
+SMTP_USE_TLS=false
+```
+
+The web inbox is at <http://localhost:8025>.
+
+#### Team development: real inboxes through Docker
+
+Docker Compose automatically loads `backend/.env` when that file is present.
+It is optional, ignored by Git, and excluded from the backend image, so a secret
+cannot be recovered from the repository or built image. For a trusted team that
+needs real verification and password-reset messages locally, prepare one
+`backend/.env` using a dedicated development sender and share that file through
+a password manager or another encrypted channel. Each teammate places it at
+exactly `backend/.env`; they do not edit the Compose file.
+
+For the Docker setup, the file must use:
+
+```dotenv
+FRONTEND_BASE_URL=http://localhost:8080
+```
+
+The rest of the SMTP values are the provider settings documented below. After
+placing the file, the ordinary command is enough:
+
+```bash
+docker compose up --build
+```
+
+New accounts can then register with any real recipient address. Mail is sent
+from the shared development sender to that address. Verification links contain
+`localhost:8080`, so they should be opened on the same computer that is running
+Docker. Never commit the shared file or copy a personal mailbox password into
+it; use a revocable App Password for the dedicated sender.
+
+#### Production SMTP
+
+Set these in `backend/.env` (see `.env.example`; every value there is a
+placeholder — **no real credentials are in this repository**):
+
+| Variable | Notes |
+| --- | --- |
+| `SMTP_HOST` | Non-empty is what switches real sending on. |
+| `SMTP_PORT` | 587 with STARTTLS, or 465 with implicit TLS. |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | Omitted for a relay that authenticates by IP. |
+| `SMTP_USE_TLS` | STARTTLS after EHLO. The 587 case. |
+| `SMTP_USE_SSL` | TLS from the first byte. The 465 case; wins if both are set. |
+| `SMTP_FROM` | `UEP EMMY <no-reply@yourdomain>`. Must be a domain you may send for. |
+| `FRONTEND_BASE_URL` | **Every link in every email is built against this.** |
+
+`FRONTEND_BASE_URL` is the one that is easy to forget and impossible to work
+around: the queue runs in a background task with no request to read a `Host`
+header off, so there is nothing to derive it from. Left at its default, every
+verification and reset link in a real inbox points at `http://localhost:5173`
+and goes nowhere.
+
+**Check the settings before testing the app through them:**
+
+```bash
+cd backend
+python -m app.scripts.check_smtp                     # connect, secure, log in
+python -m app.scripts.check_smtp --send you@you.com  # and send one real message
+```
+
+It performs the same three steps the queue does and names the setting behind
+whichever one failed. Without it, a wrong app password, a blocked port and a
+rejected `SMTP_FROM` are indistinguishable from inside the application: messages
+just sit in `email_messages` with `state = failed`. The password is read from
+`.env` — never passed as an argument, which would put it in shell history — and
+is never printed back, only its length.
+
+### Gmail
+
+Gmail needs an **App Password**, not the account password, and App Passwords
+only exist once 2-Step Verification is on (Google Account → Security → 2-Step
+Verification → App passwords):
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USE_TLS=true
+SMTP_USE_SSL=false
+SMTP_USERNAME=you@gmail.com
+SMTP_PASSWORD=your16charapppassword
+SMTP_FROM=UEP EMMY <you@gmail.com>
+```
+
+`SMTP_FROM` has to match the authenticated account — Gmail refuses to send as
+anybody else. Paste the App Password without the spaces Google displays it in.
+Gmail also caps sending at roughly 500 messages a day, which is fine for a
+demo and not a production relay.
+
+#### Authentication email flows
+
+| Flow | Endpoint | Link lifetime |
+| --- | --- | --- |
+| Confirm an address after signup | queued by `POST /v1/auth/signup` | `VERIFY_EMAIL_TTL_HOURS` (48) |
+| Send that link again | `POST /v1/auth/verify-email/resend` | 48 h |
+| Confirm a **changed** address | queued by `PATCH /v1/users/me` with a new `email` | 48 h |
+| Spend any confirmation link | `POST /v1/auth/verify-email` | — |
+| Ask for a password reset | `POST /v1/auth/forgot-password` | `PASSWORD_RESET_TTL_MINUTES` (60) |
+| Spend a reset link | `POST /v1/auth/reset-password` | — |
+
+The frontend screens are `/verify-email`, `/resend-verification`,
+`/forgot-password` and `/reset-password`, all public — a link from an email is
+usually opened in a browser that is not the one holding the session.
+
+**An account cannot sign in until its address is confirmed.** This is the rule
+everything else here serves:
+
+- `POST /v1/auth/signup` creates the account and returns **no session** — just
+  `{email, verification_required, detail}`. Handing back a token while `/login`
+  refuses the same account would be two rules disagreeing, and the one that let
+  people in would be the one that mattered.
+- `POST /v1/auth/login` answers **403** with
+  `{"code": "email_unverified", "message": …}` for an unconfirmed account. The
+  code is there because `/login` also answers 403 for a ban, and the two need
+  opposite endings — a ban is final, an unconfirmed address is one click from
+  being fixed. The sign-in form branches on the code, not the wording.
+- The check runs **after** the password, deliberately. Refusing on the address
+  alone would tell anybody who typed an address whether it has an unconfirmed
+  account here, which is the enumeration hole the rest of this section avoids.
+- It runs **after the ban check** too: a banned account is not owed a
+  verification link, and "confirm your address" would be a false lead.
+- Completing a password reset also confirms the address. Clicking a link in the
+  inbox proves the inbox, whichever link it was.
+
+**Nobody gets locked out by this**, which takes two pieces of care:
+
+- `ensure_seeded_accounts_verified` (in `db/seed.py`, run on every boot) marks
+  the four fixture accounts confirmed. Their inboxes are at `@uepemmy.com` and
+  nobody can read them, so without it a fresh checkout would have no way in and
+  the admin queue would be unreachable.
+- `_grandfather_existing_accounts` (in `main.py`) runs **once**, on the boot
+  that adds `email_verified_at`, and confirms every account that predates the
+  column. An existing deployment upgrading into this rule would otherwise lock
+  out every one of its users, including the administrator who would have to fix
+  it. It is the only backfill in this codebase; grandfathered rows are the ones
+  where `email_verified_at` equals `created_at` exactly.
+
+Neither shortcut touches a real account, and neither guesses. A heuristic like
+"confirm everybody if nobody is confirmed yet" would, on a fresh deployment,
+silently admit the first person who signed up and never clicked — the rule
+undone by its own migration.
+
+Three more properties worth knowing, because they look like bugs if you do not:
+
+- **A changed address does not change until the link is clicked.** `PATCH
+  /v1/users/me` with a new `email` sets `pending_email` and sends a link to the
+  new address; the account keeps signing in with the old one until it is used.
+  A typo saved straight onto the account would send every future password reset
+  to an inbox the owner cannot read.
+- **Links are one-use and superseding.** Asking for a second reset kills the
+  first, and spending one kills every other outstanding reset for that account.
+  An expired or spent link answers `410`, a link that was never valid answers
+  `400`, and the pages say different things for each.
+- **Neither `/forgot-password` nor `/verify-email/resend` reveals whether an
+  address is registered.** Both always answer `202` with the same body. The
+  interface keeps that promise too — "if that address has an account with us".
+  `/verify-email/resend` is the way out of a blocked sign-in, so it works
+  without a session by design.
+
+Rate limits (in-process, `app/core/rate_limit.py`): three emails per address per
+hour, twenty requests per caller per hour, ten reset attempts per caller per
+fifteen minutes.
+
+#### Which events send email
+
+Reminder due · appointment requested, confirmed, declined, cancelled · a new
+time suggested, accepted, or turned down · a new message on an appointment · a
+note added by the practice · veterinary verification approved, rejected, or
+revoked · a moderation decision that changes what an account can do.
+
+Every one of these is an in-app notification first; the email carries the same
+words plus the pet, the date, the practice and a link back. Messages containing
+clinical wording carry one sentence saying they are a record, not a diagnosis.
+Health-record content beyond the note itself is never included.
+
+#### Preferences, and the delivery states
+
+`notify_email` silences **notification** email only. Verification and
+password-reset messages are `SECURITY` category and are never suppressed —
+turning notifications off is not consent to be locked out of your own account.
+
+Each notification carries an `email_state`, and they are shown differently
+because they mean different things:
+
+| State | What it means | What the bell says |
+| --- | --- | --- |
+| `not_requested` | The reader has email switched off. | nothing |
+| `queued` | Written down, waiting for the sweep. | "email on its way" |
+| `sent` | Accepted by the mail server. | nothing |
+| `failed` | Refused, and out of retry attempts. | "email could not be delivered" |
+| `unavailable` | No SMTP here; written to the outbox. | "email unavailable on this server" |
+
+The old interface printed "not emailed" for everything that was not `sent`,
+which covered a message queued two seconds ago, a message a server refused, and
+a deployment with no mail server — two of which are not problems at all.
+
+#### Retries and deduplication
+
+A refused message is retried after 1 minute, 5 minutes, 30 minutes and 2 hours,
+then given up on as `failed` at `EMAIL_MAX_ATTEMPTS` (5). A message that went to
+the outbox is **never** retried: there is nothing to retry against, and the file
+is already written.
+
+Deduplication is a unique `dedupe_key` on `email_messages`, carrying the same
+keys the notification layer already uses (`email:reminder:<id>:<date>`). That is
+what makes a scheduler running every fifteen minutes safe to run every fifteen
+minutes.
+
+Reminder email respects the reader's timezone, their chosen hour, and every lead
+time they have set — `notify_leads` allows several ("a week before" *and* "the
+day before"), each announced separately under its own key, and a reminder with
+its own `notify_lead_days` overrides the list.
+
+#### Troubleshooting
+
+Start with `python -m app.scripts.check_smtp`, which answers most of these
+directly.
+
+| Symptom | Where to look |
+| --- | --- |
+| Nothing arrives, and Settings says the server cannot send email | `SMTP_HOST` is empty. Expected in dev — read `python -m app.scripts.outbox`. |
+| "Username and Password not accepted" | Gmail: you used the account password, not an App Password. |
+| Connects and negotiates TLS, then every message fails | `SMTP_USERNAME` set with an empty `SMTP_PASSWORD`. `check_smtp` refuses this configuration rather than reporting success. |
+| Alerts stuck at "email on its way" | The sweep is not running. `NOTIFICATION_SWEEP_ENABLED=false` stops both sweeps; check the boot log for `Email: SMTP at ...`. |
+| "email could not be delivered" | `email_messages.detail` holds the last SMTP error (type and message, bounded). Common causes: wrong port for the TLS mode, an unauthenticated relay, a `SMTP_FROM` domain the relay will not send for. |
+| Links in emails point at localhost | `FRONTEND_BASE_URL` is still the default. |
+| A verification link says "already used" straight away | Some mail scanners pre-fetch links. Ask for a new one; tokens are one-use by design. |
+| Reset emails stop arriving after a few tries | The per-address limit is three an hour. |
+
+Logs never contain a body, a token, or a password, and recipients are masked to
+`al***@example.com` — a reset link in an application log is a reset link in
+every system that log is shipped to.
+
 ### Veterinarian verification
 
 Signing up as a veterinarian is only a claim; the teal **Verified vet** badge
@@ -180,11 +471,17 @@ dialogs, same attributable and reversible decisions.
 
 ## Running with Docker (recommended)
 
-The quickest way to start both the backend and frontend together:
+The quickest way to start both the backend and frontend together is:
 
 ```bash
 docker compose up --build
 ```
+
+If `backend/.env` exists, Compose injects it into the backend container at
+runtime. This is how the privately shared team SMTP configuration reaches
+Docker; the file is not copied into the image. Without the file, the application
+still starts and uses its local email outbox. See **Email: verification,
+password resets, and notifications** above.
 
 This builds and starts two containers:
 
@@ -492,3 +789,17 @@ the source's claim, which is how `increased_thirst` was corrected from 2 to 3.
   URLs available to admins only.
 - Uploads are buffered in memory (bounded by `MAX_UPLOAD_MB`); stream to storage
   for larger files.
+- **Email delivery has never been tested against a real inbox.** No SMTP
+  credentials exist for this project, so every path up to and including
+  `smtplib.SMTP.send_message` is exercised — against the local outbox, and
+  against a fake sender in the test suite — and the final hop is not. What
+  remains dependent on real deployment credentials, and can only be confirmed
+  once they exist: that the relay accepts `SMTP_FROM`; that SPF, DKIM and DMARC
+  are aligned for that domain so messages are not filed as spam; that the port
+  and TLS mode match the relay; and that the HTML renders acceptably in the mail
+  clients the audience actually uses. The retry path is covered by tests with a
+  fake sender; it has not been watched against a real server going down.
+- The rate limiter is in-process and resets on restart (`app/core/rate_limit.py`).
+  Behind more than one instance the effective limit multiplies by the instance
+  count; a shared store is the fix, and is deliberately not here for a
+  single-container deployment.

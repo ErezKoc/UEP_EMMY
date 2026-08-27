@@ -38,10 +38,11 @@ def network_enabled(request) -> bool:
 def outbox_in_tmp_path(tmp_path, monkeypatch):
     """Keep the email outbox out of the project directory.
 
-    Anything that creates a notification asks the email sender to send it, and
-    with no SMTP configured the sender writes a real `.eml` file. Under test
-    that meant every run littered `backend/storage/outbox` with messages
-    addressed to fixtures - dozens of them before anybody noticed.
+    Delivery happens in the queue sweep rather than inline, so far fewer tests
+    reach the sender at all now - but any test that drains the queue with the
+    real sender still writes a genuine `.eml` file, and with no SMTP configured
+    that is exactly what the sender is meant to do. Under test it meant every
+    run littered `backend/storage/outbox` with messages addressed to fixtures.
 
     Autouse because the tests that trigger it do not look like email tests:
     they create a reminder, or confirm an appointment, and the email is a

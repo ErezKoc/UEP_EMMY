@@ -15,6 +15,7 @@ import base64
 import hashlib
 import hmac
 import os
+import secrets
 import time
 import uuid
 
@@ -67,3 +68,30 @@ def verify_token(token: str) -> uuid.UUID | None:
         return uuid.UUID(user_id_str)
     except ValueError:
         return None
+
+
+# --------------------------------------------------- one-time email link tokens
+
+
+def generate_link_token() -> str:
+    """A fresh secret for a verification or password-reset link.
+
+    `secrets`, not `random`: this value is the only thing standing between a
+    stranger and somebody's account for the hour it lives. 32 bytes is 43
+    URL-safe characters, which survives being copied out of a mail client that
+    has wrapped the line.
+    """
+    return secrets.token_urlsafe(32)
+
+
+def hash_link_token(raw: str) -> str:
+    """The form stored in the database. The raw token exists only in the email.
+
+    Plain SHA-256 with no salt, unlike a password, and deliberately: this is a
+    128-bit random value rather than something a person chose, so there is no
+    dictionary to slow an attacker down with - and the lookup has to be an
+    indexed equality match on a hash the server can compute from the token
+    alone. Storing the raw value would make a database dump a set of working
+    links; storing this makes it a set of useless ones.
+    """
+    return hashlib.sha256(raw.encode()).hexdigest()

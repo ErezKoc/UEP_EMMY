@@ -12,8 +12,15 @@ from sqlalchemy import inspect, text
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.db.base import Base
-from app.db.seed import ensure_admin_account, ensure_demo_clinic_details, seed_demo_data
+from app.db.seed import (
+    ensure_admin_account,
+    ensure_demo_clinic_details,
+    ensure_seeded_accounts_verified,
+    seed_demo_data,
+)
 from app.services.notifications import due_reminder_notifications
+from app.services.email import get_email_sender
+from app.services.email_queue import process_due, purge_sent
 from app.db.session import SessionLocal, engine
 from app.services.ai import get_analysis_service
 
@@ -113,6 +120,19 @@ def ensure_compatibility_columns() -> None:
         ),
         # NULL means UTC, and the settings page says so rather than guessing.
         "notify_timezone": "ALTER TABLE users ADD COLUMN notify_timezone VARCHAR(64)",
+        # Several lead times instead of one. NULL means "just notify_lead_days",
+        # which is what every existing row already meant - so nobody's alerts
+        # change until they ask for something different.
+        "notify_leads": "ALTER TABLE users ADD COLUMN notify_leads JSON",
+        # The email flows. `pending_email` is nullable with no backfill - NULL
+        # means "no address change is waiting", which is true of everybody.
+        #
+        # `email_verified_at` IS backfilled, once, for rows that predate the
+        # column - see `_grandfather_existing_accounts` below. NULL now means
+        # "cannot sign in", so leaving it NULL would lock every existing
+        # account out of a platform they were using yesterday.
+        "email_verified_at": "ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP",
+        "pending_email": "ALTER TABLE users ADD COLUMN pending_email VARCHAR(255)",
         # The directory: distance, specialty, opening status and price.
         # `availability_slots` is a new TABLE and so is created by
         # `create_all`; these are new COLUMNS on an existing one, which
@@ -163,6 +183,36 @@ def ensure_compatibility_columns() -> None:
         # picked one. NULL for every request that named its own time.
         "slot_id": "ALTER TABLE appointments ADD COLUMN slot_id CHAR(32)",
     }
+    notification_columns = {
+        column["name"] for column in inspector.get_columns("notifications")
+    }
+    notification_additions = {
+        # The email half of a notification, mirrored from `email_messages` so
+        # the notification list can say what happened without a join per row.
+        #
+        # `email_messages` and `security_tokens` are new TABLES and so are
+        # created by `create_all`; these are new COLUMNS on an existing one,
+        # which create_all does not touch - an existing database 500s on every
+        # /v1/notifications call without them.
+        #
+        # Existing rows default to 'not_requested' rather than to a state that
+        # claims something. A notification created before the queue existed was
+        # emailed inline or not at all, and the truthful thing to say about it
+        # now is that nothing is queued for it - not "sent", which we cannot
+        # know, and not "failed", which would put a red mark against alerts
+        # that were fine.
+        "email_state": (
+            "ALTER TABLE notifications ADD COLUMN email_state VARCHAR(13) "
+            "NOT NULL DEFAULT 'not_requested'"
+        ),
+        "email_attempts": (
+            "ALTER TABLE notifications ADD COLUMN email_attempts INTEGER NOT NULL DEFAULT 0"
+        ),
+        "email_next_attempt_at": (
+            "ALTER TABLE notifications ADD COLUMN email_next_attempt_at TIMESTAMP"
+        ),
+        "email_detail": "ALTER TABLE notifications ADD COLUMN email_detail VARCHAR(300)",
+    }
     reminder_columns = {column["name"] for column in inspector.get_columns("reminders")}
     reminder_additions = {
         # Custom recurrence. An existing "monthly" row means every 1 month,
@@ -178,6 +228,12 @@ def ensure_compatibility_columns() -> None:
         # existing one, which create_all does not touch.
         "notify_lead_days": "ALTER TABLE reminders ADD COLUMN notify_lead_days INTEGER",
     }
+    # Captured before the ALTERs below add it. A backfill that ran on every
+    # boot would silently confirm the address of every account that had signed
+    # up since the last restart and not clicked its link - which is the whole
+    # rule, undone by its own migration.
+    verified_column_is_new = "email_verified_at" not in user_columns
+
     missing = [
         statement
         for name, statement in animal_additions.items()
@@ -197,6 +253,11 @@ def ensure_compatibility_columns() -> None:
         statement
         for name, statement in user_additions.items()
         if name not in user_columns
+    )
+    missing.extend(
+        statement
+        for name, statement in notification_additions.items()
+        if name not in notification_columns
     )
     missing.extend(
         statement
@@ -231,6 +292,40 @@ def ensure_compatibility_columns() -> None:
                 "ON ai_analysis_logs (triage_level)"
             )
         )
+        if verified_column_is_new:
+            _grandfather_existing_accounts(connection)
+
+
+def _grandfather_existing_accounts(connection) -> None:
+    """Treat accounts that predate address confirmation as confirmed.
+
+    Runs exactly once: on the boot that adds `email_verified_at`, and never
+    again (see `verified_column_is_new`).
+
+    Signing in now requires a confirmed address. Every account in an existing
+    database was created before there was any way to confirm one, so without
+    this the upgrade would lock out every single user of a working deployment -
+    including the administrator who would have to fix it. Weighed against that,
+    a backfilled timestamp is the smaller inaccuracy, and it is recorded here in
+    the open rather than left for somebody to discover.
+
+    `created_at` rather than "now", so the row says when the account was
+    trusted rather than when this code happened to run. Anybody auditing which
+    addresses were genuinely proved can find these: they are the rows where
+    `email_verified_at` equals `created_at` to the microsecond.
+    """
+    result = connection.execute(
+        text(
+            "UPDATE users SET email_verified_at = created_at "
+            "WHERE email_verified_at IS NULL"
+        )
+    )
+    if result.rowcount:
+        logger.info(
+            "Grandfathered %d existing account(s) as email-confirmed: they predate "
+            "the confirmation requirement.",
+            result.rowcount,
+        )
 
 
 async def _notification_sweep() -> None:
@@ -263,6 +358,45 @@ async def _notification_sweep() -> None:
         await asyncio.sleep(interval)
 
 
+async def _email_sweep() -> None:
+    """Drain the email queue, for as long as the app is running.
+
+    The counterpart to `enqueue`: endpoints write messages down and return, and
+    this is what actually talks to a mail server. Keeping the two apart is what
+    stops a slow relay from being felt as a slow API - the request never waits
+    on SMTP, because the request never opens a socket to it.
+
+    Same two properties as the reminder sweep. It must never raise out of the
+    loop, because one poisonous row must not silently end email for everybody
+    until the next restart; and it must be safe to run as often as it likes,
+    which the unique `dedupe_key` guarantees.
+
+    Faster than the reminder sweep by design. Reminders are day-grained and can
+    wait a quarter of an hour; a password-reset link that waits a quarter of an
+    hour is a password-reset link the person has given up on.
+    """
+    settings = get_settings()
+    interval = max(5, settings.email_sweep_seconds)
+    # Cleaning up finished rows is bookkeeping, not delivery, so it runs on a
+    # slow multiple of the sweep rather than on its own timer.
+    passes_between_purges = max(1, 3600 // interval)
+    passes = 0
+    while True:
+        try:
+            with SessionLocal() as db:
+                sent = process_due(db)
+                passes += 1
+                if passes % passes_between_purges == 0:
+                    purge_sent(db)
+            if sent:
+                logger.info("Email sweep delivered %d message(s).", sent)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Email sweep failed; will try again next time.")
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # MVP bootstrap: create tables directly from the models and seed demo
@@ -277,6 +411,12 @@ async def lifespan(app: FastAPI):
         # Same reason: the demo veterinarians were seeded before clinic contact
         # details existed, and seeding never runs again once there is a user.
         ensure_demo_clinic_details(db)
+        # And the same reason again: signing in now needs a confirmed address,
+        # and the fixture accounts have inboxes nobody can read. Without this a
+        # database seeded before the rule existed has no way in at all.
+        confirmed = ensure_seeded_accounts_verified(db)
+        if confirmed:
+            logger.info("Marked %d demo account(s) as email-confirmed.", confirmed)
 
     # Build the analysis service now rather than on first use. Reading the two
     # ~19 MB ONNX files cold can take well over half a minute in Docker, and
@@ -287,8 +427,21 @@ async def lifespan(app: FastAPI):
     # shutdown can cancel it rather than leaving a task writing to a database
     # session that is being torn down.
     sweep_task: asyncio.Task | None = None
+    email_task: asyncio.Task | None = None
     if get_settings().notification_sweep_enabled:
         sweep_task = asyncio.create_task(_notification_sweep())
+        email_task = asyncio.create_task(_email_sweep())
+
+    # Said once, at boot, rather than discovered by nobody receiving anything.
+    sender = get_email_sender()
+    if sender.configured:
+        logger.info("Email: SMTP at %s:%s.", sender.host, sender.port)
+    else:
+        logger.info(
+            "Email: no SMTP configured. Messages are written to %s as .eml files "
+            "and marked 'unavailable' rather than 'sent'.",
+            sender.outbox,
+        )
 
     try:
         service = get_analysis_service()
@@ -300,12 +453,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    if sweep_task is not None:
-        sweep_task.cancel()
-        # Swallowed on purpose: cancelling is how this task is meant to end,
+    for task in (sweep_task, email_task):
+        if task is None:
+            continue
+        task.cancel()
+        # Swallowed on purpose: cancelling is how these tasks are meant to end,
         # and re-raising CancelledError here would make shutdown look failed.
         with suppress(asyncio.CancelledError):
-            await sweep_task
+            await task
 
 
 app = FastAPI(

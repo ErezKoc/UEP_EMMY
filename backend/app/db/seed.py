@@ -4,7 +4,7 @@ Only runs when the users table is empty; a real deployment replaces this with
 proper registration/auth flows and Alembic data migrations.
 """
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +27,15 @@ from app.models import (
 # All demo accounts share this password (documented in the README).
 DEMO_PASSWORD = "demo1234"
 
+#: Demo accounts are created already confirmed.
+#:
+#: Signing in needs a confirmed address, and these fixtures have addresses at
+#: `@uepemmy.com` that nobody can read - so without this the seeded logins the
+#: README documents would all be refused, and a fresh checkout would have no way
+#: in at all. Real accounts still confirm theirs; these are not real accounts.
+def _seeded_verification_time() -> datetime:
+    return datetime.now(timezone.utc)
+
 
 def seed_demo_data(db: Session) -> None:
     if db.scalars(select(User).limit(1)).first() is not None:
@@ -35,6 +44,7 @@ def seed_demo_data(db: Session) -> None:
     owner = User(
         email="demo.owner@uepemmy.com",
         password_hash=hash_password(DEMO_PASSWORD),
+        email_verified_at=_seeded_verification_time(),
         display_name="Alex the Pet Owner",
         role=UserRole.OWNER,
         bio="Proud owner of Buddy the Labrador. Learning something new about dogs every day.",
@@ -42,6 +52,7 @@ def seed_demo_data(db: Session) -> None:
     vet = User(
         email="demo.vet@uepemmy.com",
         password_hash=hash_password(DEMO_PASSWORD),
+        email_verified_at=_seeded_verification_time(),
         display_name="Dr. Maya Fischer",
         role=UserRole.VETERINARIAN,
         clinic_name="Riverside Veterinary Clinic",
@@ -67,6 +78,7 @@ def seed_demo_data(db: Session) -> None:
     pending_vet = User(
         email="demo.newvet@uepemmy.com",
         password_hash=hash_password(DEMO_PASSWORD),
+        email_verified_at=_seeded_verification_time(),
         display_name="Dr. Deniz Aydın",
         role=UserRole.VETERINARIAN,
         clinic_name="Anatolia Animal Hospital",
@@ -161,6 +173,45 @@ def seed_demo_data(db: Session) -> None:
 
 ADMIN_EMAIL = "admin@uepemmy.com"
 
+#: The fixture accounts, by address. Nobody can read any of these inboxes.
+SEEDED_ACCOUNTS = (
+    "demo.owner@uepemmy.com",
+    "demo.vet@uepemmy.com",
+    "demo.newvet@uepemmy.com",
+    ADMIN_EMAIL,
+)
+
+
+def ensure_seeded_accounts_verified(db: Session) -> int:
+    """Keep the demo logins working now that signing in needs a confirmed address.
+
+    Runs on every boot, like `ensure_admin_account`, and for the same reason:
+    `seed_demo_data` only fires on an empty database, so a deployment that
+    already had these accounts would never get the flag any other way.
+
+    Deterministic rather than clever. It matches the four fixture addresses by
+    name instead of guessing which accounts predate the rule - a heuristic like
+    "confirm everybody if nobody is confirmed yet" would, on a fresh
+    deployment, silently confirm the first real person who signed up and never
+    clicked their link. That is the whole rule undone by its own migration.
+
+    Real accounts are untouched. They confirm their address the ordinary way,
+    and with no SMTP server the link is still readable:
+    `python -m app.scripts.outbox --links`.
+    """
+    accounts = db.scalars(
+        select(User).where(
+            User.email.in_(SEEDED_ACCOUNTS), User.email_verified_at.is_(None)
+        )
+    ).all()
+    if not accounts:
+        return 0
+    stamp = _seeded_verification_time()
+    for account in accounts:
+        account.email_verified_at = stamp
+    db.commit()
+    return len(accounts)
+
 
 def ensure_admin_account(db: Session) -> None:
     """Create the credential-review admin if the platform has none.
@@ -180,6 +231,10 @@ def ensure_admin_account(db: Session) -> None:
             display_name="Platform Admin",
             role=UserRole.ADMIN,
             bio="Reviews veterinarian credentials.",
+            # Confirmed on creation, like the other fixtures: nobody can read
+            # admin@uepemmy.com, and an admin who cannot sign in leaves every
+            # veterinarian verification stuck in the queue forever.
+            email_verified_at=_seeded_verification_time(),
         )
     )
     db.commit()
