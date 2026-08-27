@@ -10,6 +10,7 @@ interface Message {
   sender: "user" | "assistant";
   text: string;
   action?: AssistantAction;
+  actions?: AssistantAction[];
   timestamp: string;
 }
 
@@ -22,7 +23,7 @@ export default function VoiceAssistantBubble() {
     {
       id: "welcome",
       sender: "assistant",
-      text: "Hi! I'm Emmy, your voice & command assistant. Speak or type commands like 'create me a calendar event for Jan 6 at 12:30' or 'take me to my pets'.",
+      text: "Hi! I'm Emmy, your voice & command assistant. Speak or type commands like 'add a dog named Max and set a checkup reminder for him tomorrow' or 'take me to my pets'.",
       timestamp: formatTime(new Date()),
     },
   ]);
@@ -50,21 +51,59 @@ export default function VoiceAssistantBubble() {
     }
   }, [messages, isOpen]);
 
+  // Prime speech synthesis voices on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+  }, []);
+
   // Speech synthesis helper
   const speakText = (text: string) => {
-    if (!ttsEnabled || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    window.speechSynthesis.speak(utterance);
+    if (!ttsEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "en-US";
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          const preferredVoice =
+            voices.find(
+              (v) =>
+                v.lang.startsWith("en") &&
+                (v.name.includes("Natural") ||
+                  v.name.includes("Female") ||
+                  v.name.includes("Samantha") ||
+                  v.name.includes("Google") ||
+                  v.name.includes("Zira"))
+            ) || voices.find((v) => v.lang.startsWith("en"));
+          if (preferredVoice) {
+            utterance.voice = preferredVoice;
+          }
+        }
+        window.speechSynthesis.speak(utterance);
+      }, 60);
+    } catch (e) {
+      console.warn("Speech synthesis error", e);
+    }
   };
 
   const handleProcessResponse = (
     userText: string,
     response_text: string,
+    actions?: AssistantAction[],
     action?: AssistantAction
   ) => {
+    const allActions = actions && actions.length > 0 ? actions : action ? [action] : [];
     const timeStr = formatTime(new Date());
 
     if (userText) {
@@ -85,7 +124,8 @@ export default function VoiceAssistantBubble() {
         id: Math.random().toString(),
         sender: "assistant",
         text: response_text,
-        action,
+        action: allActions[0],
+        actions: allActions,
         timestamp: timeStr,
       },
     ]);
@@ -93,21 +133,36 @@ export default function VoiceAssistantBubble() {
     speakText(response_text);
     toast(response_text, "info");
 
-    if (action?.nav_target) {
+    // Navigate to the target route if any action specifies navigation
+    let targetRoute: string | null = null;
+    for (let i = allActions.length - 1; i >= 0; i--) {
+      if (allActions[i].nav_target) {
+        targetRoute = allActions[i].nav_target;
+        break;
+      }
+    }
+
+    if (targetRoute) {
       setTimeout(() => {
-        navigate(action.nav_target!);
-      }, 600);
+        navigate(targetRoute!);
+      }, 700);
     }
   };
 
   const submitCommand = async (audioBlob?: Blob | null, textContent?: string) => {
-    const queryText = textContent || inputTextRef.current;
+    const queryText = textContent !== undefined ? textContent : inputTextRef.current;
     if (!audioBlob && (!queryText || !queryText.trim())) return;
     setIsProcessing(true);
 
     try {
-      const res = await processAssistantCommand(audioBlob, queryText.trim() || undefined);
-      handleProcessResponse(res.transcript || queryText || "", res.response_text, res.action);
+      const res = await processAssistantCommand(audioBlob, queryText?.trim() || undefined);
+      const userDisplay = res.transcript || queryText?.trim() || "Voice command";
+      handleProcessResponse(
+        userDisplay,
+        res.response_text,
+        res.actions,
+        res.action
+      );
     } catch (err: any) {
       const errorMsg = err.message || "Failed to process command. Please try again.";
       toast(errorMsg, "error");
@@ -147,13 +202,14 @@ export default function VoiceAssistantBubble() {
         recognition.lang = "en-US";
 
         recognition.onresult = (event: any) => {
-          let currentTranscript = "";
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            currentTranscript += event.results[i][0].transcript;
+          let fullTranscript = "";
+          for (let i = 0; i < event.results.length; i++) {
+            fullTranscript += event.results[i][0].transcript + " ";
           }
-          if (currentTranscript.trim()) {
-            liveTranscriptRef.current = currentTranscript;
-            setInputText(currentTranscript);
+          const cleaned = fullTranscript.trim();
+          if (cleaned) {
+            liveTranscriptRef.current = cleaned;
+            setInputText(cleaned);
           }
         };
 
@@ -182,16 +238,16 @@ export default function VoiceAssistantBubble() {
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
         const finalRecordedText = liveTranscriptRef.current || inputTextRef.current;
-        const audioBlob = audioChunksRef.current.length > 0 ? new Blob(audioChunksRef.current, { type: "audio/webm" }) : null;
+        const audioBlob =
+          audioChunksRef.current.length > 0
+            ? new Blob(audioChunksRef.current, { type: "audio/webm" })
+            : null;
 
-        if (finalRecordedText.trim()) {
-          submitCommand(null, finalRecordedText.trim());
-        } else if (audioBlob && audioBlob.size > 0) {
-          submitCommand(audioBlob, undefined);
-        }
+        submitCommand(audioBlob, finalRecordedText.trim() || undefined);
       };
 
-      mediaRecorder.start();
+      // Gather audio slices every 250ms
+      mediaRecorder.start(250);
     } catch (err) {
       setIsRecording(false);
       toast("Microphone access permission denied or unavailable.", "error");
@@ -306,19 +362,41 @@ export default function VoiceAssistantBubble() {
                 >
                   <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
 
-                  {/* Action Summary Pill */}
-                  {msg.action && msg.action.action_type !== "general_reply" && (
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2 text-xs font-medium text-primary-700">
-                      <span className="rounded bg-primary-50 px-2 py-0.5 border border-primary-100">
-                        ⚡ {msg.action.summary}
-                      </span>
-                      {msg.action.nav_target && (
-                        <span className="text-slate-500">→ {msg.action.nav_target}</span>
-                      )}
-                    </div>
+                  {/* Action Summary Pills for Multi-Action Support */}
+                  {(() => {
+                    const displayedActions = (
+                      msg.actions || (msg.action ? [msg.action] : [])
+                    ).filter((a) => a.action_type !== "general_reply");
+                    if (displayedActions.length === 0) return null;
+                    return (
+                      <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2 text-xs font-medium text-primary-700">
+                        {displayedActions.map((act, idx) => (
+                          <div key={idx} className="flex flex-wrap items-center gap-1.5">
+                            <span className="rounded bg-primary-50 px-2 py-0.5 border border-primary-100">
+                              ⚡ {act.summary}
+                            </span>
+                            {act.nav_target && (
+                              <span className="text-slate-500">→ {act.nav_target}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-slate-400">
+                  <span>{msg.timestamp}</span>
+                  {msg.sender === "assistant" && (
+                    <button
+                      type="button"
+                      onClick={() => speakText(msg.text)}
+                      title="Replay Voice Confirmation"
+                      className="text-slate-400 hover:text-primary-600 transition"
+                    >
+                      🔊
+                    </button>
                   )}
                 </div>
-                <span className="mt-1 px-1 text-[10px] text-slate-400">{msg.timestamp}</span>
               </div>
             ))}
 
@@ -336,6 +414,18 @@ export default function VoiceAssistantBubble() {
             <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
               <button
                 type="button"
+                onClick={() =>
+                  submitCommand(
+                    null,
+                    "add a dog named Max and set a checkup reminder for him tomorrow at 2pm"
+                  )
+                }
+                className="whitespace-nowrap rounded-full bg-primary-50 px-3 py-1 font-medium text-primary-700 border border-primary-200 hover:bg-primary-100 transition"
+              >
+                🐾+📅 Add Max & Set Event
+              </button>
+              <button
+                type="button"
                 onClick={() => submitCommand(null, "create me a calendar event for jan 6 at 12.30")}
                 className="whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition"
               >
@@ -347,6 +437,27 @@ export default function VoiceAssistantBubble() {
                 className="whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition"
               >
                 🐾 Add Pet Max
+              </button>
+              <button
+                type="button"
+                onClick={() => submitCommand(null, "take me to symptom checker")}
+                className="whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition"
+              >
+                🩺 Symptom Checker
+              </button>
+              <button
+                type="button"
+                onClick={() => submitCommand(null, "open the new owner guide")}
+                className="whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition"
+              >
+                📖 Owner Guide
+              </button>
+              <button
+                type="button"
+                onClick={() => submitCommand(null, "view my appointments")}
+                className="whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-primary-50 hover:text-primary-700 transition"
+              >
+                🏥 Appointments
               </button>
               <button
                 type="button"

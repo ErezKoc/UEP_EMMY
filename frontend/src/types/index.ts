@@ -967,11 +967,13 @@ export interface AssistantAction {
   summary: string;
   params: Record<string, any>;
   nav_target: string | null;
+  execution_result?: Record<string, any> | null;
 }
 
 export interface AssistantProcessResponse {
   transcript: string;
   response_text: string;
+  actions: AssistantAction[];
   action: AssistantAction;
   execution_result: Record<string, any> | null;
 }

@@ -23,13 +23,13 @@ async def process_assistant_command(
     """Process voice audio or typed text command, parse intent, and auto-execute actions."""
     transcript = ""
 
-    if file is not None:
+    if text and text.strip():
+        transcript = text.strip()
+
+    if not transcript and file is not None:
         audio_bytes = await file.read()
         if audio_bytes:
             transcript = assistant_service.transcribe_audio(audio_bytes, file.filename or "speech.webm")
-
-    if not transcript and text:
-        transcript = text.strip()
 
     if not transcript:
         return AssistantProcessResponse(
@@ -50,22 +50,38 @@ async def process_assistant_command(
 
     # Parse intent via Ollama / fallback
     intent = assistant_service.parse_intent(transcript, user_pets_list)
+    raw_actions = intent.get("actions") or [intent]
 
-    # Execute backend mutation if needed
-    execution_result, response_text = assistant_service.execute_action(db, current_user, intent)
+    # Execute backend mutations for all actions
+    execution_results, response_text = assistant_service.execute_actions(db, current_user, raw_actions)
 
-    action = AssistantAction(
-        action_type=intent.get("action_type", "general_reply"),
-        summary=intent.get("summary", "Processed command"),
-        params=intent.get("params", {}),
-        nav_target=intent.get("nav_target"),
+    actions: list[AssistantAction] = []
+    for i, act in enumerate(raw_actions):
+        res = execution_results[i] if i < len(execution_results) else None
+        actions.append(
+            AssistantAction(
+                action_type=act.get("action_type", "general_reply"),
+                summary=act.get("summary", "Processed command"),
+                params=act.get("params", {}),
+                nav_target=act.get("nav_target"),
+                execution_result=res,
+            )
+        )
+
+    primary_action = actions[0] if actions else AssistantAction(
+        action_type="general_reply",
+        summary="Processed command",
+        params={},
+        nav_target=None,
     )
+    primary_result = execution_results[0] if execution_results else None
 
     return AssistantProcessResponse(
         transcript=transcript,
         response_text=response_text,
-        action=action,
-        execution_result=execution_result,
+        actions=actions,
+        action=primary_action,
+        execution_result=primary_result,
     )
 
 

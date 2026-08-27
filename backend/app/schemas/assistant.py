@@ -22,10 +22,12 @@ class AssistantAction(BaseModel):
     summary: str = Field(description="Human-readable description of what action is being taken.")
     params: dict[str, Any] = Field(default_factory=dict, description="Extracted action parameters.")
     nav_target: str | None = Field(default=None, description="Frontend route to navigate to, if any.")
+    execution_result: dict[str, Any] | None = Field(default=None, description="Result of auto-executed backend mutations for this action, if applicable.")
 
 
 class AssistantProcessResponse(BaseModel):
     transcript: str = Field(description="Transcribed input query or user text.")
     response_text: str = Field(description="Spoken and displayed response from Emmy Assistant.")
-    action: AssistantAction
+    actions: list[AssistantAction] = Field(default_factory=list, description="List of all actions parsed and executed.")
+    action: AssistantAction = Field(description="Primary or first action for backwards compatibility.")
     execution_result: dict[str, Any] | None = Field(default=None, description="Result of auto-executed backend mutations, if applicable.")

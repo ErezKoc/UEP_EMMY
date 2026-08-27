@@ -1,8 +1,8 @@
-import logging
 import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -332,6 +332,18 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 from app.api.recommendations import router as recommendations_router
 app.include_router(recommendations_router, prefix=f"{settings.api_v1_prefix}")
+
+
+@app.get("/", tags=["root"])
+def root() -> dict[str, Any]:
+    return {
+        "service": settings.app_name,
+        "status": "running",
+        "docs_url": "/docs",
+        "health_url": "/healthz",
+        "frontend_url": "http://localhost:8080",
+        "api_v1_prefix": settings.api_v1_prefix,
+    }
 
 
 @app.get("/healthz", tags=["health"])
