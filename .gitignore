@@ -15,8 +15,8 @@ backend/storage/
 backend/reports/
 
 # Raw and processed data
-backend/data/
-*.csv
+# backend/data/
+# *.csv
 
 # Node / frontend
 node_modules/
